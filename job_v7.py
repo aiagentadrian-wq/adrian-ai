@@ -85,8 +85,8 @@ def install(app, root, db, auth, csrf, now, record_action, event, model_call, ci
             provider=c.execute('SELECT * FROM providers ORDER BY id LIMIT 1').fetchone()
         if not j:raise HTTPException(404,'Posting not found')
         if not provider:raise HTTPException(400,'Connect an AI provider first')
-        instructions=('You are a careful resume editor. Use only facts explicitly present in the supplied resume. Never invent qualifications, dates, credentials, availability, languages, achievements, or experience. The Chipotle-specific summary is a previous tailoring example, not proof of work at Chipotle. Never claim an application was sent. Return a plain-text resume with name/contact, profile, skills, experience and education. Do not include a made-up employer in work history.')
-        draft=await generate(provider,instructions,'ORIGINAL RESUME:\n'+r['content']+'\n\nTARGET POSTING:\n'+j['employer']+' | '+j['title']+' | '+j['location']+'\n'+j['description']+'\n\nTailor the resume to this role using only original facts. No preface.')
+        instructions=('Create an ATS-readable, job-specific resume using ONLY the original resume as factual evidence. Never invent jobs, employers, dates, credentials, qualifications, languages, availability, achievements, metrics, or skills. The previous Chipotle-specific summary is a tailoring example, NOT proof of employment. First identify the posting requirements internally. Reorder and rephrase only genuinely matching existing experience and skills to reflect the posting; do not insert unsupported keywords. Return plain text only, one column, no tables, icons, graphics, rating bars, headers, footers, or decorative elements. Use standard sections NAME AND CONTACT, PROFESSIONAL SUMMARY, SKILLS, EXPERIENCE (or RELEVANT EXPERIENCE for supported projects/volunteering), EDUCATION, and ADDITIONAL INFORMATION only if supported. Preserve actual employer names, roles, and dates. Omit unknown information rather than guessing. Concise factual bullets. No preface, no ATS-pass guarantee.')
+        draft=await generate(provider,instructions,'ORIGINAL RESUME:\n'+r['content']+'\n\nTARGET POSTING:\n'+j['employer']+' | '+j['title']+' | '+j['location']+'\n'+j['description']+'\n\nTailor the summary, skills and supported experience bullets to the actual job requirements. Keep the document simple and machine-readable. No preface.')
         if not draft:raise HTTPException(502,'AI returned an empty draft')
         # Explainable fit score is a heuristic, not a hiring prediction.
         source=(r['content']+' '+j['description']).lower();desc=j['description'].lower();matches=[w for w in ('food','kitchen','customer','service','team','clean','retail','warehouse','stock','cash','cook','prep','safety','organize') if w in r['content'].lower() and w in desc]
@@ -94,6 +94,39 @@ def install(app, root, db, auth, csrf, now, record_action, event, model_call, ci
         reasoning='Shared resume/posting terms: '+(', '.join(matches) if matches else 'none found')+'. Heuristic only; schedule, pay, eligibility and employer requirements need manual confirmation.'
         with db() as c:c.execute('UPDATE job_v7_postings SET score=?,reasoning=?,draft=?,approved=0 WHERE id=?',(score,reasoning,draft[:22000],jid))
         return {'ok':True,'score':score,'reasoning':reasoning,'draft':draft,'warning':'Review every claim against your original resume before approving.'}
+    class DraftEdit(BaseModel):
+        draft:str=Field(min_length=50,max_length=22000)
+    @app.put('/api/jobs/v7/postings/{jid}/draft')
+    def edit_draft(jid:int,body:DraftEdit,req:Request):
+        csrf(req)
+        with db() as c:
+            row=c.execute('SELECT id FROM job_v7_postings WHERE id=?',(jid,)).fetchone()
+            if not row:raise HTTPException(404,'Posting not found')
+            c.execute('UPDATE job_v7_postings SET draft=?,approved=0 WHERE id=?',(body.draft.strip(),jid))
+        return {'ok':True,'note':'Saved locally; approval reset. Review claims before approval.'}
+    @app.get('/api/jobs/v7/postings/{jid}/docx')
+    def get_docx(jid:int,req:Request):
+        auth(req)
+        with db() as c:r=c.execute('SELECT draft FROM job_v7_postings WHERE id=?',(jid,)).fetchone()
+        if not r or not r['draft']:raise HTTPException(404,'No draft generated')
+        try:
+            from docx import Document
+            from docx.shared import Inches,Pt
+        except ImportError:raise HTTPException(503,'Install python-docx in your virtual environment')
+        doc=Document();section=doc.sections[0]
+        section.top_margin=section.bottom_margin=Inches(.65)
+        section.left_margin=section.right_margin=Inches(.75)
+        normal=doc.styles['Normal'];normal.font.name='Calibri';normal.font.size=Pt(10.5)
+        headings={'NAME AND CONTACT','PROFESSIONAL SUMMARY','SKILLS','EXPERIENCE','RELEVANT EXPERIENCE','EDUCATION','ADDITIONAL INFORMATION'}
+        for line in r['draft'].splitlines():
+            line=line.strip()
+            if not line:continue
+            if line.upper().rstrip(':') in headings:doc.add_paragraph(line.upper().rstrip(':'),style='Heading 2')
+            elif line.startswith(('- ','• ')):doc.add_paragraph(line[2:],style='List Bullet')
+            else:doc.add_paragraph(line)
+        out=io.BytesIO();doc.save(out)
+        from fastapi.responses import Response
+        return Response(out.getvalue(),media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',headers={'Content-Disposition':f'attachment; filename="tailored_resume_{jid}.docx"'})
     @app.get('/api/jobs/v7/postings/{jid}/draft')
     def draft(jid:int,req:Request):
         auth(req)
