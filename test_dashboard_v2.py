@@ -30,9 +30,24 @@ class DashboardTests(unittest.TestCase):
         cls.client.close();cls.env.stop();sys.path.pop(0);cls.temp.cleanup()
 
     def test_auth_and_csrf(self):
+        self.assertEqual(self.client.post('/api/paper/settings',json={}).status_code,403)
+        with TestClient(self.app.app) as anonymous:
+            self.assertEqual(anonymous.get('/api/paper/journal').status_code,401)
         with TestClient(self.app.app) as anonymous:
             self.assertEqual(anonymous.get('/api/pro/services').status_code,401)
         self.assertEqual(self.client.post('/api/pro/writer/save',json={'content':'test'}).status_code,403)
+    def test_private_paper_settings_do_not_return_credentials(self):
+        self.assertEqual(self.client.get('/paper.js').status_code,200)
+        data={'key':'mock-paper-key','secret':'mock-paper-secret','gmail_password':'mock-app-password','owner':'paper-owner@gmail.com'}
+        result=self.client.post('/api/paper/settings',json=data,headers=self.headers)
+        self.assertEqual(result.status_code,200)
+        self.assertNotIn('mock-paper',result.text);self.assertNotIn('mock-app-password',result.text)
+        self.assertTrue(result.json()['key_saved'])
+        with self.app.db() as c:stored=c.execute('SELECT payload FROM paper_settings').fetchone()[0]
+        self.assertNotIn('mock-paper',stored)
+        self.client.post('/api/paper/settings',json={'owner':'paper-owner@gmail.com'},headers=self.headers)
+        self.assertTrue(self.client.get('/api/paper/settings').json()['secret_saved'])
+        with self.app.db() as c:c.execute('DELETE FROM paper_settings')
 
     def test_real_service_statuses(self):
         self.core.observe('boc','verified','successful response')

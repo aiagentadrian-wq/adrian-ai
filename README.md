@@ -114,3 +114,12 @@ Read `RELEASE_NOTES.md` for the release scope, verification and known limits. Ea
 
 `test_dashboard_v2.py`, `test_trading_upgrade.py`, `test_trading_monitor.py` — regression checks.
 
+
+## Trading validation follow-up
+
+See `TRADING_VALIDATION.md` for completed-bar checks, boundary purging, paper risk limits, chronological replay, actual losing historical results and the job-worker dependency fix. Run `python -m unittest test_trading_guard` for the ten added guard tests. The cumulative automated count is 27.
+
+
+## Alpaca paper trading and Gmail approvals
+
+Adds encrypted private connection settings, a broker-backed paper account view, shared Alpaca IEX US-stock bars, expiring authenticated Gmail reply approvals, limit-entry bracket orders with deterministic risk checks, unique order IDs and uncertain-submission reconciliation. Manager reads actual paper account state and includes the journal in reports. Opt-in daily proposal check: 09:45 Toronto weekdays; daily paper report: 17:00 Toronto. No live trading endpoint exists. Account-specific checks still require the owner’s paper API keys and Gmail app password. See [setup and limitations](PAPER_TRADING.md). Regression suite: 42 checks passed including the previous dashboard/trading suites.
