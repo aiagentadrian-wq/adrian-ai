@@ -47,6 +47,33 @@ pre.terminal{overflow-x:auto;white-space:pre-wrap}
 @media(max-width:1150px){#trading>.grid>.panel,#trading>.grid>.panel.wide,#trading>.grid>.panel:first-child,#trading>.grid>.panel:nth-child(2){grid-column:span 6}}
 @media(max-width:850px){.shell{display:block}.side{height:auto;position:static;padding:14px;border-right:0;border-bottom:1px solid #403629}.side nav{display:flex;overflow-x:auto;gap:5px}.side button{flex:0 0 auto;margin:3px}.main{padding:16px}.grid{grid-template-columns:1fr}.wide{grid-column:span 1}#trading>.grid{grid-template-columns:1fr}#trading>.grid>.panel,#trading>.grid>.panel.wide,#trading>.grid>.panel:first-child,#trading>.grid>.panel:nth-child(2){grid-column:1}.top{align-items:flex-start;flex-direction:column}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+
+/* Trading workspace v2: deliberate hierarchy, compact controls and contextual help. */
+#trading .trading-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:22px;align-items:start}
+#trading .trading-main{min-width:0}
+#trading .trading-group{margin:0 0 22px}
+#trading .trading-group-head{margin:0 0 12px;padding:0 4px}
+#trading .trading-group-head h2{font-size:20px;margin:0 0 4px;color:#f5d594}
+#trading .trading-group-head p{font-size:13px;color:#aeb1b9;margin:0}
+#trading .trading-group-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+#trading .trading-group-grid>.panel{grid-column:auto!important;margin:0;box-shadow:0 8px 22px #0002}
+#trading .trading-group-grid>.panel.trading-feature{grid-column:1/-1!important}
+#trading .panel h2{font-size:17px;border-bottom:0;padding:0;margin:0 0 6px}
+#trading .trading-desc{color:#aeb1b9;font-size:12px;line-height:1.55;margin:0 0 15px}
+#trading .trading-help{position:sticky;top:18px;background:linear-gradient(150deg,#211b13,#11161d);border:1px solid #66502b;border-radius:16px;padding:18px;max-height:calc(100vh - 36px);display:flex;flex-direction:column;min-height:470px}
+#trading .trading-help h2{color:#f4d48b}
+#trading .trading-help-log{flex:1;min-height:180px;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.6;background:#0c1016;border:1px solid #38342b;border-radius:10px;padding:12px;margin:10px 0}
+#trading .trading-help-log p{margin:0 0 12px}
+#trading .trading-help textarea{min-height:74px;resize:vertical}
+#trading .trading-help button{width:100%}
+#trading .trading-help .trading-help-shortcuts{display:flex;gap:7px;flex-wrap:wrap}
+#trading .trading-help .trading-help-shortcuts button{width:auto;background:#27221b;color:#f0d397;border:1px solid #5b4a30;font-size:11px;padding:7px 9px}
+#trading .trading-company-tools{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+#trading .trading-company-tools input,#trading .trading-company-tools select{margin:0}
+#trading .trading-company-note{grid-column:1/-1;color:#aeb1b9;font-size:11px}
+#trading .trading-group-grid>.panel{min-width:0}
+@media(max-width:1250px){#trading .trading-layout{grid-template-columns:minmax(0,1fr)}#trading .trading-help{position:static;max-height:none;min-height:330px}}
+@media(max-width:680px){#trading .trading-group-grid{grid-template-columns:1fr}#trading .trading-group-grid>.panel.trading-feature{grid-column:auto!important}#trading .trading-company-tools{grid-template-columns:1fr}}
 </style></head><body><div id="login" class="login panel"><div class="eyebrow">SECURE PRIVATE TERMINAL // V1</div><h1 class="brand"><img class="brand-mark" src="/favicon.svg" alt="">ADRIAN<span class="accent">.AI</span></h1><p class="muted">Identity verification required.</p><form id="loginform"><label>ACCESS PASSWORD</label><input id="password" type="password" autocomplete="current-password" required><button style="width:100%">AUTHENTICATE →</button></form><p id="loginerror" class="error small"></p></div>
 <div id="app" class="shell hidden boot"><aside class="side"><div class="eyebrow">PRIVATE NETWORK</div><h2 class="brand"><img class="brand-mark" src="/favicon.svg" alt="">ADRIAN<span class="accent">.AI</span></h2><p class="pill">● SYSTEM ONLINE</p><nav><button class="active" data-page="home">⌂ Overview</button><button data-page="chat">◈ Manager Chat</button><button data-page="agents">◇ Agents</button><button data-page="jobs">⌕ Job Finder</button><button data-page="jobpro">▣ Application Desk</button><button data-page="writer">✎ Writer Studio</button><button data-page="trading">◈ Trading Division</button><button data-page="api">⌘ API Center</button><button data-page="learning">◉ Memory & Learning</button><button data-page="email">✉ Reports & Email</button><button data-page="security">⚿ Security</button></nav><button id="logout">Log out ↗</button></aside><main class="main"><div class="top"><div><div class="eyebrow">MASTER CONTROL TERMINAL / PRIVATE INSTANCE</div><h1 id="heading">WELCOME BACK, ADRIAN</h1></div><span class="pill" id="clock"></span></div>
 <section id="home" class="section active"><p class="muted">Systems initialized. Here is your daily command briefing.</p><div class="grid"><div class="panel"><div class="eyebrow">AGENTS</div><div id="agentcount" class="stat">—</div><p class="muted">Configured specialists</p></div><div class="panel"><div class="eyebrow">AI CONNECTIONS</div><div id="providercount" class="stat">—</div><p class="muted">Connected providers</p></div><div class="panel"><div class="eyebrow">APPROVALS</div><div id="approvalcount" class="stat">—</div><p class="muted">Awaiting review</p></div><div class="panel wide"><div class="eyebrow">TODAY'S REPORT</div><h2>Command briefing</h2><div class="terminal" id="report">Loading...</div><br><button onclick="show('chat')">Ask the Manager →</button></div><div class="panel"><div class="eyebrow">ACTIVITY FEED</div><div id="activity" class="terminal small">Loading...</div></div></div></section>
@@ -102,4 +129,49 @@ $('labdownload').onclick=()=>{if(!labLastReport)return toast('Generate a report 
 $('labscan').onclick=async()=>{let b=$('labscan');b.disabled=true;try{await labCall('scan','POST',{symbols:$('labuniverse').value.split(/[\s,]+/).filter(Boolean)},'labscanresult')}finally{b.disabled=false}};
 $('labevidence').onclick=()=>labCall('evidence?q='+encodeURIComponent(trSym()),'GET',undefined,'labevidenceresult');
 $('labportfolio').onclick=()=>labCall('portfolio','GET',undefined,'labportfolioresult');
+
+function tradingWorkspace(){
+ const section=$('trading'), old=section.querySelector(':scope > .grid');
+ if(!old||section.querySelector('.trading-layout'))return;
+ const layout=document.createElement('div');layout.className='trading-layout';
+ const main=document.createElement('div');main.className='trading-main';
+ const groups=[
+  ['01 / MARKET INTELLIGENCE','Find a company, inspect its chart and review source-backed market information.',[0,1,2,3,4,5,6]],
+  ['02 / RESEARCH & DISCOVERY','Investigate ideas, inspect evidence and explore a defined universe of stocks.',[9,10,11]],
+  ['03 / MODEL LAB','Test historical hypotheses. Model results are research, not guaranteed forecasts.',[8]],
+  ['04 / PAPER PORTFOLIO','Track hypothetical transactions and inspect your recorded positions.',[7,12]]
+ ];
+ const cards=Array.from(old.children);
+ const descriptions=[
+ 'Choose a company or enter a ticker, select a timeframe, and load its price chart.',
+ 'See the registered research specialists and their responsibilities.',
+ 'View the structured evidence returned for your selected company.',
+ 'Read dated headlines and publisher links for the selected symbol.',
+ 'Inspect available interest-rate, exchange-rate and economic context.',
+ 'Look up US regulatory filings using a company CIK identifier.',
+ 'Save the current ticker for follow-up research and reports.',
+ 'Record hypothetical buys and sells. No real brokerage orders.',
+ 'Train and backtest a day or swing model using historical data.',
+ 'Combine market, news, technical and scenario evidence into one report.',
+ 'Scan the tickers you enter. This is not a complete global startup directory.',
+ 'Check whether news reports are independent or repeated coverage.',
+ 'Calculate positions from your manual paper journal.'
+ ];
+ cards.forEach((card,i)=>{let h=card.querySelector('h2');if(h){let p=document.createElement('p');p.className='trading-desc';p.textContent=descriptions[i];h.after(p)}});
+ groups.forEach(([heading,description,indices])=>{let group=document.createElement('section');group.className='trading-group';let head=document.createElement('div');head.className='trading-group-head';let title=document.createElement('h2');title.textContent=heading;let p=document.createElement('p');p.textContent=description;head.append(title,p);let grid=document.createElement('div');grid.className='trading-group-grid';indices.forEach(i=>{let card=cards[i];if(card){if([0,2,8,9,10].includes(i))card.classList.add('trading-feature');grid.append(card)}});group.append(head,grid);main.append(group)});
+ old.replaceWith(layout);layout.append(main);
+ const help=document.createElement('aside');help.className='trading-help';help.setAttribute('aria-label','Trading research help');
+ help.innerHTML='<div class="eyebrow">YOUR RESEARCH COMPANION</div><h2>Ask Day Trader</h2><p class="trading-desc">Questions about the current company, tools, terminology or emerging-company news. Research only; no orders.</p><div class="trading-help-shortcuts"><button type="button" data-q="Explain this Trading Division page and how to use it.">How it works</button><button type="button" data-q="Explain RSI, SMA20 and SMA50 in plain English.">Indicators</button><button type="button" data-q="What evidence should I check for a newly public small company?">Small companies</button></div><div id="trhelp-log" class="trading-help-log" role="log" aria-live="polite"><p>DAY TRADER: Ask me about the tools or the company you are researching.</p></div><form id="trhelp-form"><label for="trhelp-input">YOUR QUESTION</label><textarea id="trhelp-input" maxlength="2000" placeholder="What does this indicator mean?" required></textarea><button id="trhelp-send" type="submit">ASK DAY TRADER →</button></form>';
+ layout.append(help);
+ help.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{$('trhelp-input').value=b.dataset.q;$('trhelp-input').focus()});
+ $('trhelp-form').onsubmit=async e=>{e.preventDefault();let input=$('trhelp-input'),message=input.value.trim();if(!message)return;let log=$('trhelp-log'),btn=$('trhelp-send');let line=document.createElement('p');line.textContent='YOU: '+message;log.append(line);input.value='';btn.disabled=true;try{let agent=dashboard.agents.find(a=>a.name==='Day Trader'&&a.enabled);if(!agent)throw Error('Enable Day Trader in Agents first.');let response=await api('chat','POST',{message:'Current research ticker: '+trSym()+'. '+message,agent_id:agent.id});let answer=document.createElement('p');answer.textContent='DAY TRADER: '+response.answer;log.append(answer)}catch(error){let p=document.createElement('p');p.textContent='ERROR: '+error.message;log.append(p)}finally{btn.disabled=false;log.scrollTop=log.scrollHeight}};
+ const terminal=cards[0],row=terminal.querySelector('.row');
+ const tools=document.createElement('div');tools.className='trading-company-tools';tools.innerHTML='<input id="trcompanysearch" type="search" placeholder="Filter company names or symbols…" aria-label="Search company directory"><select id="trcompanyselect" aria-label="Alphabetical company directory"><option value="">Select a company alphabetically…</option></select><div id="trcompanynote" class="trading-company-note">Loading company directory… Manual ticker entry remains available.</div>';row.before(tools);
+ $('trcompanyselect').onchange=()=>{if($('trcompanyselect').value)$('trsymbol').value=$('trcompanyselect').value};
+ let directory=[];
+ function renderCompanyList(){let term=$('trcompanysearch').value.trim().toLowerCase();let selected=$('trcompanyselect'),current=selected.value;let filtered=directory.filter(x=>(x.name+' '+x.symbol).toLowerCase().includes(term));selected.replaceChildren(new Option('Select a company alphabetically…',''),...filtered.slice(0,300).map(x=>new Option(x.name+' ('+x.symbol+')',x.symbol)));if(filtered.some(x=>x.symbol===current))selected.value=current;$('trcompanynote').textContent=directory.length+' SEC directory entries; '+filtered.length+' match'+(filtered.length>300?' (first 300 shown; refine search)':'')+'. US SEC coverage only; listing status not verified.'}
+ $('trcompanysearch').oninput=renderCompanyList;
+ api('trading/company-directory').then(d=>{directory=d.items||[];if(directory.length)renderCompanyList();else $('trcompanynote').textContent=d.coverage+' — '+(d.error||d.status)+'. Enter a ticker manually.'}).catch(e=>$('trcompanynote').textContent='Directory unavailable: '+e.message+'. Enter a ticker manually.');
+}
+tradingWorkspace();
 </script><script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script></body></html>
