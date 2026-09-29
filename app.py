@@ -67,7 +67,7 @@ Your first priority is the user's most recent saved corrections. Match the user'
 The user's school-writing voice is direct, professional but ordinary: common everyday words, practical examples, explanations of what something does and why it matters, and natural phrases such as 'I believe', 'Another reason' or 'This could help' only when they fit. Do not copy sentences or force these phrases into every paragraph.
 Avoid stock AI essay language, including 'When it comes to', 'The question of whether', 'valuable tool', 'Additionally', 'Furthermore', 'foster', 'facilitate', 'hinder', 'meaningful relationships', 'strike a balance', 'middle ground', 'well-rounded', 'Ultimately', and 'In conclusion'. Do not replace these with equally inflated synonyms. Avoid generic opening and closing filler, abstract claims, repetitive points, and overpolished transitions. If a conclusion is requested, make it short, specific, and in the user's normal voice.
 Before returning, silently revise the draft: compare it to the relevant sample and latest corrections; replace any stock essay phrasing with plain words; remove filler; ensure the result sounds like the same person writing about a NEW subject. A request to use saved style is not a request to mention the samples.
-Follow the current task's explicit constraints. Do not invent experiences, qualifications, sources or facts. Use clear placeholders for crucial missing details. Never send an email or claim an application was submitted. Output the draft directly without a preface.
+For assignments, preserve the supplied task order, rubric, required headings and requested format. If a source or rubric detail is missing, flag it rather than filling it with general knowledge. Do not invent citations or claim a source was consulted when it was not. Follow the current task's explicit constraints. Do not invent experiences, qualifications, sources or facts. Use clear placeholders for crucial missing details. Never send an email or claim an application was submitted. Output the draft directly without a preface.
 """+writer_context())
 WRITER_CLICHES = ('additionally', 'furthermore', 'in conclusion', 'strike a balance', 'strikes a balance', 'meaningful conversations', 'meaningful relationships', 'overall well-being', 'positive school environment', 'offer several advantages', 'facilitate', 'hinder', 'ultimately', 'when it comes to', 'the question of whether', 'minimize risks', 'acknowledging the role', 'foster', 'crucial', 'enhance that shared experience')
 
@@ -80,7 +80,7 @@ async def writer_generate(provider, request, history=None, details=False):
     messages=[{'role':'system','content':system}]
     if history: messages.extend(history)
     messages.append({'role':'user','content':request})
-    first=await model_call(provider,messages)
+    first=await model_call(provider,messages,max_tokens=3500)
     initial=(first['choices'][0]['message'].get('content') or '').strip()
     if not initial: raise HTTPException(502,'Writer returned an empty first draft')
     initial_flags=writer_flags(initial)
@@ -103,7 +103,7 @@ async def writer_generate(provider, request, history=None, details=False):
         'these stock phrases: '+', '.join(WRITER_CLICHES)+'. Do not swap them for equally inflated synonyms. '
         'Output ONLY the complete rewritten draft.\n\nORIGINAL REQUEST:\n'+request+
         '\n\nFIRST DRAFT:\n'+initial+'\n\nSPECIFIC STYLE REVIEW:\n'+review)
-    revised=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':revision_prompt}])
+    revised=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':revision_prompt}],max_tokens=3500)
     final=(revised['choices'][0]['message'].get('content') or '').strip()
     if not final: raise HTTPException(502,'Writer returned an empty revised draft')
     final_flags=writer_flags(final)
@@ -139,7 +139,7 @@ async def writer_voice_review(body:WriterReviewIn,req:Request):
     return {'review':review,'stock_phrases':writer_flags(body.draft),
             'note':'Style feedback is not an AI-detector score or a guarantee. Verify the final draft yourself.'}
 class WriterDraftIn(BaseModel):
-    request:str=Field(min_length=3,max_length=5000)
+    request:str=Field(min_length=3,max_length=18000)
 @app.get('/api/writer')
 def writer_data(req:Request):
     auth(req)
@@ -288,9 +288,9 @@ def remove_provider(pid:int,req:Request):
     with db() as c:c.execute('DELETE FROM providers WHERE id=?',(pid,))
     event('System','provider removed',str(pid)); return {'ok':True}
 class ChatIn(BaseModel): message:str=Field(min_length=1,max_length=12000); agent_id:int=1
-async def model_call(provider, messages, tools=None):
+async def model_call(provider, messages, tools=None, max_tokens=1400):
     key=CIPHER.decrypt(provider['secret']).decode()
-    payload={'model':provider['model'],'messages':messages,'max_tokens':1400}
+    payload={'model':provider['model'],'messages':messages,'max_tokens':max_tokens}
     if tools: payload['tools']=tools; payload['tool_choice']='auto'
     try:
         async with httpx.AsyncClient(timeout=60) as client:
