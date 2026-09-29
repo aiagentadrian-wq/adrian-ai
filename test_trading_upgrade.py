@@ -26,10 +26,11 @@ Maintained clean work areas.
 
 class UpgradeTests(unittest.TestCase):
     def setUp(self):
+        self.env=patch.dict(os.environ,{'TRADING_UNIVERSE':bridge.DEFAULT_UNIVERSE});self.env.start()
         self.conn=sqlite3.connect(':memory:');self.conn.row_factory=sqlite3.Row
         self.conn.executescript('CREATE TABLE trading_watchlist(symbol TEXT,added_utc TEXT);CREATE TABLE job_v7_resume(id INTEGER PRIMARY KEY,content TEXT);CREATE TABLE job_v7_postings(employer TEXT,title TEXT,location TEXT,url TEXT,description TEXT,id INTEGER);')
         self.conn.execute("INSERT INTO trading_watchlist VALUES('AAPL','today')")
-    def tearDown(self):self.conn.close()
+    def tearDown(self):self.conn.close();self.env.stop()
     @contextmanager
     def db(self):yield self.conn
     def test_broad_question_compares_more_than_apple(self):
@@ -67,6 +68,7 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(attachments[0].get_filename(),'Adrian_ATS_resume_test.pdf')
         self.assertEqual(before,self.conn.total_changes)
         from pathlib import Path
-        Path('/tmp/ats-test.pdf').write_bytes(pdf)
+        import tempfile
+        (Path(tempfile.gettempdir())/'ats-test.pdf').write_bytes(pdf)
 
 if __name__=='__main__':unittest.main()
