@@ -96,6 +96,30 @@ def grouping(articles):
         g['sources'].add(a.get('source') or 'unknown');g['articles'].append({'source':a.get('source'),'url':a.get('url'),'published_at':a.get('published_at')})
     return [{'headline':v['headline'],'source_names':sorted(v['sources']),'article_count':len(v['articles']),'independence':'not verified; title-based duplicate grouping only','articles':v['articles']} for v in groups.values()]
 
+def paper_positions(rows):
+    """Account for long-only manual journal entries without inventing short holdings."""
+    positions={};cashflow=0.
+    for x in rows:
+        s=x['symbol'];z=positions.setdefault(s,{'quantity':0.,'net_cost':0.,'realized_pnl':0.})
+        q=x['quantity'];price=x['price']
+        if x['side']=='buy':
+            z['quantity']+=q;z['net_cost']+=q*price;cashflow-=q*price
+        else:
+            available=max(0.,z['quantity'])
+            applied=min(q,available)
+            if q>available:
+                z.setdefault('warnings',[]).append(
+                    'Sell exceeds prior long position; only available quantity is accounted for. '
+                    'Excess quantity is excluded because short accounting is unsupported.'
+                )
+            avg=z['net_cost']/available if available else 0.
+            z['realized_pnl']+=(price-avg)*applied
+            z['net_cost']-=avg*applied
+            z['quantity']=max(0.,available-applied)
+            cashflow+=applied*price
+            if z['quantity']==0.:z['net_cost']=0.
+    return {'positions':positions,'net_cashflow':round(cashflow,2),'limitations':['Manual records only','No fees, tax, currency conversion, dividends or current market valuation','Short positions unsupported','Excess historical sell quantities are excluded from long-only accounting']}
+
 def init(db):
     with db() as c:
         c.execute('CREATE TABLE IF NOT EXISTS trading_ml_runs(id INTEGER PRIMARY KEY,created_utc TEXT NOT NULL,symbol TEXT NOT NULL,horizon TEXT NOT NULL,results_json TEXT NOT NULL)')
@@ -141,16 +165,7 @@ def install(app,db,auth,csrf,base):
     def portfolio(req:Request):
         auth(req)
         with db() as c:rows=[dict(x) for x in c.execute('SELECT * FROM trading_paper_journal ORDER BY id')]
-        positions={};cashflow=0.
-        for x in rows:
-            s=x['symbol'];z=positions.setdefault(s,{'quantity':0.,'net_cost':0.,'realized_pnl':0.})
-            q=x['quantity'];price=x['price']
-            if x['side']=='buy':z['quantity']+=q;z['net_cost']+=q*price;cashflow-=q*price
-            else:
-                if q>z['quantity']:z.setdefault('warnings',[]).append('Sell exceeds prior long position; short accounting unsupported')
-                avg=z['net_cost']/z['quantity'] if z['quantity'] else 0.
-                z['realized_pnl']+=(price-avg)*min(q,z['quantity']);z['net_cost']-=avg*min(q,z['quantity']);z['quantity']-=q;cashflow+=q*price
-        return {'positions':positions,'net_cashflow':round(cashflow,2),'limitations':['Manual records only','No fees, tax, currency conversion, dividends or current market valuation','Short positions unsupported']}
+        return paper_positions(rows)
     @app.post('/api/trading/lab/report')
     async def report(body:Report,req:Request):
         csrf(req);symbol=sym(body.symbol);errors={};sources={}
