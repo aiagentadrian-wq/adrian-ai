@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+from html import escape
 import os
 import sqlite3
 import ssl
@@ -112,6 +113,33 @@ def format_report(kind, rows, local):
     lines.append("No trained ML forecast is implied. Verify events, company filings and source independence separately.")
     return "\n".join(lines)
 
+def html_report(subject, body):
+    """Email-safe HTML companion to the plain-text research report."""
+    parts = []
+    for line in body.splitlines():
+        safe = escape(line)
+        if not line.strip():
+            parts.append('<div style="height:10px"></div>')
+        elif ' | checked UTC:' in line:
+            parts.append('<h2 style="color:#f1d49b;border-top:1px solid #494338;padding-top:18px">'+safe+'</h2>')
+        elif line.startswith(('Last returned candle close:', 'Indicators:')):
+            parts.append('<div style="padding:12px;background:#252b34;border-left:3px solid #d5ad65;margin:8px 0;overflow-wrap:anywhere">'+safe+'</div>')
+        elif line.startswith('News: '):
+            import re
+            match = re.search(r'https://[^\\s]+', line)
+            if match:
+                safe = escape(line[:match.start()]) + ' <a style="color:#eac783" href="' + escape(match.group(0), quote=True) + '">Read source</a>'
+            parts.append('<p style="border-bottom:1px solid #3b4149;padding-bottom:9px">'+safe+'</p>')
+        else:
+            parts.append('<p style="margin:8px 0">'+safe+'</p>')
+    return ('<!doctype html><html><body style="background:#10151b;color:#e5e7eb;font:14px/1.6 Arial,sans-serif;margin:0">'
+            '<div style="max-width:680px;margin:auto;padding:24px"><div style="border:1px solid #6c5430;border-radius:12px;overflow:hidden">'
+            '<div style="background:#20252d;padding:24px;border-bottom:2px solid #d5ad65"><div style="color:#d5ad65;letter-spacing:2px;font-size:12px">ADRIAN.AI / TRADING INTELLIGENCE</div>'
+            '<h1 style="font-size:25px;color:#fff;margin:8px 0">'+escape(subject)+'</h1></div>'
+            '<div style="padding:22px;overflow-wrap:anywhere">'+''.join(parts)+'</div>'
+            '<div style="padding:18px 22px;background:#20252d;color:#b7bec8;font-size:12px">Research only. No live orders or guaranteed returns. Verify dated source information.</div>'
+            '</div></div></body></html>')
+
 def send_email(subject, body):
     host, user, password, sender = (os.getenv(k) for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"))
     if not all((host, user, password, sender)):
@@ -119,6 +147,7 @@ def send_email(subject, body):
     message = EmailMessage()
     message["From"], message["To"], message["Subject"] = sender, RECIPIENT, subject
     message.set_content(body)
+    message.add_alternative(html_report(subject, body), subtype='html')
     with smtplib.SMTP(host, int(os.getenv("SMTP_PORT", "587")), timeout=20) as smtp:
         smtp.starttls(context=ssl.create_default_context())
         smtp.login(user, password)
