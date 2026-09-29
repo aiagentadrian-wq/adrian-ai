@@ -92,7 +92,7 @@ python -m unittest test_dashboard_v2
 python -m unittest test_trading_upgrade test_trading_monitor
 ```
 
-Seven isolated dashboard tests plus nine trading tests passed during development. Dashboard tests use a temporary synthetic database and credentials. Live checks covered flagship model invocation, Manager → Writer tool delegation, configured source access and SMTP authentication. Browser checks cover the simplified pages and company pagination. No new email was sent for this dashboard release.
+Eight isolated dashboard tests plus nine trading tests passed during development. Dashboard tests use a temporary synthetic database and credentials. Live checks covered flagship model invocation, Manager → Writer tool delegation, configured source access and SMTP authentication. Browser checks cover the simplified pages and company pagination. No new email was sent for this dashboard release.
 
 Read `RELEASE_NOTES.md` for the release scope, verification and known limits. Earlier setup notes and `TRADING_CHAT_UPGRADE.md` remain available as historical documentation; this README describes the current dashboard.
 

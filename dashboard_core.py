@@ -84,6 +84,23 @@ async def tracked_send(self, request, *args, **kwargs):
 ORIGINAL_SEND=httpx.AsyncClient.send
 ORIGINAL_SYNC_SEND=httpx.Client.send
 ORIGINAL_SMTP_SEND=smtplib.SMTP.send_message
+ORIGINAL_SMTP_LOGIN=smtplib.SMTP.login
+ORIGINAL_SMTP_CONNECT=smtplib.SMTP.connect
+
+def tracked_smtp_connect(self,*args,**kwargs):
+    try:return ORIGINAL_SMTP_CONNECT(self,*args,**kwargs)
+    except (smtplib.SMTPException,OSError):
+        observe('smtp','unreachable','SMTP connection failed; check host, network and port.')
+        raise
+
+def tracked_smtp_login(self,*args,**kwargs):
+    try:
+        result=ORIGINAL_SMTP_LOGIN(self,*args,**kwargs)
+        observe('smtp','verified','SMTP authentication succeeded. Inbox delivery is not verified.')
+        return result
+    except (smtplib.SMTPException,OSError):
+        observe('smtp','access denied','SMTP authentication failed; check saved email credentials.')
+        raise
 
 def tracked_sync_send(self,request,*args,**kwargs):
     service=service_for(request.url)
@@ -152,6 +169,8 @@ def install(app, root, db, auth, csrf, now, cipher):
     httpx.AsyncClient.send=tracked_send
     httpx.Client.send=tracked_sync_send
     smtplib.SMTP.send_message=tracked_smtp_send
+    smtplib.SMTP.login=tracked_smtp_login
+    smtplib.SMTP.connect=tracked_smtp_connect
 
     @app.get('/dashboard.js')
     def javascript():return FileResponse(root/'static'/'dashboard.js',media_type='text/javascript')

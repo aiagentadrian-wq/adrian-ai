@@ -17,9 +17,9 @@ This is a cumulative release including the grounded trading and ATS update.
 
 ## Verified
 
-- Seven dashboard regression tests and nine existing trading tests.
+- Eight dashboard regression tests and nine existing trading tests.
 - Actual GPT-6 Astra response and Manager tool delegation to Writer.
-- All configured feed access checks and SMTP authentication succeeded at verification time.
+- All configured feed access checks and SMTP authentication succeeded at initial verification time. A subsequent installed-app comparison returned a GNews rate limit; API Center correctly changed to limited.
 - Credentials, private records and scheduled tasks are excluded from repository updates. Existing .env is preserved during upgrade.
 
 ## Limits

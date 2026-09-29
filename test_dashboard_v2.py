@@ -83,4 +83,11 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(items[1]['call_id'],'call_1')
         self.assertEqual(items[1]['type'],'function_call_output')
 
+    def test_smtp_login_failure_updates_health(self):
+        import smtplib
+        with patch.object(self.core,'ORIGINAL_SMTP_LOGIN',side_effect=smtplib.SMTPAuthenticationError(535,b'Authentication rejected')):
+            with self.assertRaises(smtplib.SMTPAuthenticationError):self.core.tracked_smtp_login(object(),'test','test')
+        with self.app.db() as c:
+            self.assertEqual(c.execute("SELECT status FROM service_health WHERE service='smtp'").fetchone()[0],'access denied')
+
 if __name__=='__main__':unittest.main()
