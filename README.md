@@ -1,60 +1,116 @@
-# Adrian AI Command Center — V1
-A runnable, private, mobile-responsive command center inspired by a GTA Master Control Terminal. This is a foundation, not a finished autonomous multi-agent system.
+# ADRIAN.AI — Professional Dashboard 2.0
 
-## Windows quick start
-1. Install Python 3.11+ from python.org. During setup check **Add Python to PATH**.
-2. Unzip this project. Open PowerShell inside its folder.
-3. Run:
+A private, locally hosted assistant dashboard for coordinated research, job applications and authentic writing. This release includes the earlier grounded stock comparison and ATS résumé updates.
+
+## What is included
+
+| Page | What it does |
+| --- | --- |
+| Overview | Shows the installed agents, their responsibilities, actual working/idle/disabled state, and latest recorded work. |
+| Manager | Coordinates registered specialists, retrieves shared preferences and historical results, searches the web through the connected OpenAI account, and reports actual tool outcomes. |
+| Trading Division | Market Terminal, searchable/paginated SEC company directory, compact candidate comparison and Ask Day Trader. Advanced research, model training, discovery and paper portfolio tools are collapsed. |
+| Job Finder | Saved opportunities, résumé packages, discovery matches needing verification, application progress, job board searches, résumé vault and email actions. Replaces the separate Application Desk navigation. |
+| Writer Studio | Assignment instructions, editable draft, voice review, persistent local saves and text download. Samples and corrections live in Settings → Writing voice. |
+| Reports & Email | Command briefing, activity records and the existing report sender. |
+| API Center | Measured access/response status for AI, market/news/economic/company/job feeds and SMTP. Shows checked times and failures rather than a decorative online indicator. |
+| Settings | Agent instructions, writing samples, reviewable memory, security and logout. |
+
+### AI and shared memory
+
+- GPT-6 Astra was verified with the owner's existing OpenAI account during installation. Account access and billing remain provider-controlled. A fresh installation requires its own configured provider and model.
+- `ai_adapter.py` uses OpenAI Responses for GPT-5/GPT-6/reasoning models, including function calls and encrypted reasoning continuity; existing older/OpenRouter Chat Completions integrations are retained.
+- Manager delegation and a real Writer response were checked end to end. Agent coordination invokes actual registered specialists; it does not create new external capabilities.
+- Say **“Remember that …”** in agent chat to save a preference explicitly. Exact duplicates are avoided. Credential-like content is rejected. All agents can use shared memories; current instructions take priority.
+- Retrieval prioritizes relevant stored text and recent corrections. Memory is persistent database context, not retraining the language model. Review, disable, edit or delete it in Settings.
+- Historical specialist results are shared as historical context, never proof of current facts or newly completed actions.
+
+### Trading
+
+- Compares configured watchlist/universe candidates rather than hard-coding Apple. AAPL appears only if its evidence earns its ranking.
+- Compact brief and detailed chat/email share the same grounded decision logic. The brief refreshes when the trading page first opens and caches results for five minutes.
+- Describes comparative historical momentum and volume, available news, conditional entry confirmation, illustrative stops/targets, invalidation and reasons to skip.
+- Missing, stale, delayed or unverified live evidence produces WAIT/NO TRADE. The current pipeline does not assert a verified live entry or execute broker orders.
+- Company directory pages expose every returned SEC entry. This is US SEC coverage, not every public/private company worldwide; directory inclusion does not verify current listing status.
+- Model Lab remains available for historical training/backtesting. A saved model is not a guarantee of future returns.
+
+### Jobs, applications and email
+
+- Uses configured Adzuna, Arbeitnow, Lever, Greenhouse and optional public feeds. Strict eligibility filters and deduplication are retained.
+- Unconfirmed pay/hours/fit appear as discovery matches needing verification. Open the posting and paste the full description before preparing a package.
+- Application stages: saved, preparing, applied, interview, offer, closed. These are **user-recorded progress**, not automatic employer submissions.
+- Single-column ATS PDFs preserve supplied facts, readable text and ordering. Review drafts before approval.
+- Email test and approved-package actions use the existing local SMTP configuration. SMTP acceptance is distinguished from inbox delivery.
+- Next check times come from Windows Task Scheduler. If task access is unavailable or no ADRIAN tasks exist, the app says so. No schedule, next-email time or successful delivery is fabricated; this release does not create new scheduled tasks.
+- A manual discovery refresh checks feeds without sending email and limits refresh frequency to protect quota. Existing scheduled mailers retain their deduplication and authorization behavior.
+
+### Writing
+
+Uses genuine samples and saved corrections, prioritizes assignment requirements, preserves facts, flags missing sources and reviews formulaic phrasing. Edits can now be saved to the local database and restored after a refresh. No detector score or detector pass rate is promised.
+
+### Connection status
+
+Configured is separate from verified. HTTP/API failures update status during normal requests; successful checks have timestamps and become stale after 15 minutes. Quota/credit errors, denied access and unreachable services are reported. API credit balances are not guessed. An authentication/model-list check is distinguished from a successful paid model invocation. SMTP checks authenticate without sending mail.
+
+## Install or upgrade
+
+Use Python 3.12 or newer. Keep the app bound to localhost unless you deliberately configure authenticated private remote access.
+
+### Existing installation
+
+1. Stop the server and back up `.env`, `command_center.db` and private résumé files. Preserve the encryption key; replacing it makes stored provider keys unreadable.
+2. Download this release branch. From the downloaded folder run:
+
    ```powershell
-   py -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   pip install -r requirements.txt
-   python generate_secrets.py
-   python -m uvicorn app:app --host 127.0.0.1 --port 8000
+   python install_dashboard_upgrade.py --target "C:\path\to\existing\adrian-command-center"
    ```
-4. Open http://127.0.0.1:8000 and enter the generated password. Keep the `.env` file private.
-5. API Center: add an OpenAI or OpenRouter key and an exact model ID supported by your account. Chat works after this step.
-6. Create agents in the Agents page. You can enable/disable them and chat with them individually.
 
-## Private remote access from phone/tablet
-1. Install Tailscale on your PC and your other device. Sign into the same account and enable MFA on your identity provider.
-2. With the app running on localhost, run `tailscale serve --bg 8000` on your PC. Follow the Tailscale output to find the private HTTPS URL. Do **not** use `tailscale funnel` or router port forwarding.
-3. Open that private URL from a device connected to your tailnet. You still need the command center password.
-4. Use your browser's **Add to Home Screen** option for an app-like shortcut. PWA install behavior depends on the browser.
-5. To turn remote access off, run `tailscale serve reset`.
+   The installer backs up source and the database, copies an explicit source allowlist, and preserves `.env`, database records and private files. It does not change the connected model or scheduled tasks.
+3. In the existing app folder install dependencies and restart:
 
-## Optional email
-Edit `.env` and configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM and REPORT_TO. Restart the server. Email sends only to REPORT_TO after a manual click in V1. Use a dedicated SMTP credential or app password.
+   ```powershell
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   .\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
+   ```
 
-## Security and limitations
-- No public registration. Session expires after 8 hours; sessions are memory-only and reset on restart. Login attempts are rate-limited per client address in memory.
-- API keys are encrypted with Fernet using ENCRYPTION_KEY in `.env`; losing the key makes stored provider keys unrecoverable. Back up `.env` in a secure password manager, not a public repository.
-- Keep the app on 127.0.0.1 and access it remotely through Tailscale Serve. Do not expose port 8000 publicly. Set COOKIE_SECURE=1 in `.env` only if every browser connection to the app is HTTPS; localhost HTTP otherwise needs the default 0.
-- Provider endpoints are restricted to OpenAI and OpenRouter HTTPS hosts. The first connected provider powers all chats in V1. Model routing, per-agent model selection, cost accounting and balance APIs are **not yet implemented**.
-- No live market data, live job scraping, autonomous scheduling, email automation, PC control, voice, persistent chat memory or automatic agent delegation yet. The UI does not falsely claim these actions ran.
-- AI outputs may be wrong. Review market research, job applications, emails and any future PC actions before consequential use.
-- Run behind a trusted private network only. For a production internet-facing deployment, add persistent auth, secure cookies, MFA, reverse-proxy hardening, backup/restore, secrets management, and security review.
+4. Sign in. Open API Center → Check connections. If choosing a new model, use one your account permits; the installed owner's model was separately smoke-tested before switching.
 
-## V1.1 Manager registry and delegation
-The Manager now receives the actual installed agent registry on every request and has `list_agents` and `delegate_to_agent` AI function tools. Delegation invokes the selected specialist prompt and returns its answer to the Manager. This is **AI-only delegation**, not browser access, real-time market data, live job search, file access, automatic email or PC control. Each call can consume additional API tokens. The four original agents remain Manager, Day Trader, Job Finder and Writer. New agents created in the site appear in the registry automatically. Existing `.env` and `command_center.db` should be retained during an upgrade.
+### Fresh installation
 
-## V1.2 Manager email tool
-Configure SMTP settings in your existing `.env` and restart. The Manager can now send a plain-text email to the single configured REPORT_TO address when the current message explicitly requests sending. For example: “Send me an email with today's activity report.” The Manager's send_email_to_owner tool returns success only after the SMTP server accepts the message; this does not guarantee inbox delivery. Failed sends are reported as errors. Never share `.env`, SMTP credentials, or API keys in chat. Use a dedicated SMTP credential or provider app password.
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe generate_secrets.py
+.\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
+```
 
+Keep the generated password private. Configure an AI provider in API Center. Add optional feed/SMTP settings from `.env.example` locally. Never commit real credentials, databases, résumés, logs or screenshots of private data.
 
-## V1.3 intelligence upgrade
-Existing database automatically gains conversation, email_history, delegations and action_log tables. Existing .env and command_center.db are preserved by updater. Chat history stores the latest 16 user/assistant turns per agent for model context. Email history records SMTP acceptance or failure; SMTP acceptance is not proof of delivery. GET /api/activity (authenticated) returns metadata for recent emails, delegations and actions without email body. Stop server before updating; back up .env and database privately.
+## Validation
 
+```powershell
+python -m unittest test_dashboard_v2
+python -m unittest test_trading_upgrade test_trading_monitor
+```
 
-## V1.4 Adaptive Intelligence
-Adds a Memory & Learning page, user-approved long-term memories, edit/disable/delete controls, memory-aware Manager and specialists, and recorded reviews of email and delegation outcomes. The underlying model does not retrain itself. No autonomous code changes, live job feeds, PC actions or scheduled tasks are included. Only save non-sensitive preferences, corrections, goals and project decisions.
+Seven isolated dashboard tests plus nine trading tests passed during development. Dashboard tests use a temporary synthetic database and credentials. Live checks covered flagship model invocation, Manager → Writer tool delegation, configured source access and SMTP authentication. Browser checks cover the simplified pages and company pagination. No new email was sent for this dashboard release.
 
-The updater must preserve .env and command_center.db. Back both up privately before installing. Remove duplicate blank SMTP keys from .env; keep exactly one value per setting.
+Read `RELEASE_NOTES.md` for the release scope, verification and known limits. Earlier setup notes and `TRADING_CHAT_UPGRADE.md` remain available as historical documentation; this README describes the current dashboard.
 
+## Main files
 
-## V1.5 General Intelligence
-Manager now has one general-purpose OpenAI hosted web search tool. It automatically chooses it for current public information and returns source URLs. No separate weather/news API keys. Uses the existing OpenAI provider key and selected model; optionally set WEB_SEARCH_MODEL in .env to a supported model if the chosen chat model cannot use hosted search. The OpenAI Responses API web-search tool incurs separate usage charges. This does not supply brokerage-grade real-time prices, private account data, or autonomous code changes. OpenRouter remains supported for normal chat, but hosted search requires OpenAI. Existing SQLite and .env remain untouched by the updater.
+`app.py` — authenticated application, agent/tools, conversation and writing workflows.
 
+`dashboard_core.py` — professional dashboard endpoints, measured service health, working status, shared retrieval, schedule reads, application stages and persistent edits.
 
-## V1.6 Writer Studio
-Open Writer Studio in the sidebar. Save original writing samples and explicit style feedback, then create drafts. Samples, feedback and drafts are stored in existing SQLite database. Delete controls remove examples and feedback. Drafts are not sent or submitted. Writer chat and Manager delegation also receive saved style examples. The upgrade does not modify .env or existing database files.
+`ai_adapter.py` — current OpenAI Responses/tool compatibility.
+
+`static/index.html`, `static/dashboard.js`, `static/dashboard.css` — existing tools plus the simplified responsive interface.
+
+`trading_*` — sourced research, screening, company directory, paper records and model lab.
+
+`job_v7*`, `job_manager_bridge.py`, `resume_test_email.py` — discovery, deduplication, reviewed résumé packages and email.
+
+`adrian_intelligence.py` — existing job preference/recommendation intelligence.
+
+`test_dashboard_v2.py`, `test_trading_upgrade.py`, `test_trading_monitor.py` — regression checks.
+

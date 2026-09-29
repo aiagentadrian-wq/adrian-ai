@@ -45,10 +45,8 @@ def record_action(action,status,detail):
 def last_email():
     with db() as c:r=c.execute('SELECT id,subject,body,recipient,sender,status,at FROM email_history ORDER BY id DESC LIMIT 1').fetchone()
     return dict(r) if r else None
-def memory_context():
-    with db() as c:
-        rows=c.execute('SELECT id,category,content FROM learned_memories WHERE enabled=1 ORDER BY id DESC LIMIT 40').fetchall()
-    return '\n'.join(f'- [memory #{r["id"]}; {r["category"]}] {r["content"]}' for r in reversed(rows))[:12000]
+def memory_context(query=""):
+    return dashboard_core.shared_context(query)
 def writer_context():
     """Prioritize recent corrections, then show complete relevant writing examples."""
     with db() as c:
@@ -83,7 +81,7 @@ def writer_flags(draft):
 
 async def writer_generate(provider, request, history=None, details=False):
     """Generate, get a specific style critique, rewrite, and check remaining stock phrases."""
-    system=writer_instructions()
+    system=writer_instructions()+'\nShared user-approved preferences (current task takes priority):\n'+memory_context(request)
     messages=[{'role':'system','content':system}]
     if history: messages.extend(history)
     messages.append({'role':'user','content':request})
@@ -300,14 +298,8 @@ async def model_call(provider, messages, tools=None, max_tokens=1400):
     messages=[dict(m) for m in messages]
     if messages and messages[0].get('role')=='system' and 'voice-matching writing assistant' not in messages[0].get('content',''):
         messages[0]['content'] += '\nCOMMUNICATION: Answer first in clear everyday language. Usually use fewer than 180 words; expand when requested. Never claim actions without tool results.'
-    payload={'model':provider['model'],'messages':messages,'max_tokens':max_tokens}
-    if tools: payload['tools']=tools; payload['tool_choice']='auto'
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r=await client.post(provider['base_url']+'/chat/completions',headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},json=payload)
-        if r.status_code>=400: raise HTTPException(502,'AI provider error: '+str(r.status_code)+' (check key, model and credits)')
-        return r.json()
-    except httpx.RequestError: raise HTTPException(502,'AI provider unreachable')
+    import ai_adapter
+    return await ai_adapter.call(provider,messages,key,tools,max_tokens)
 
 async def general_web_search(provider, query):
     """Use OpenAI hosted web search; no third-party weather/news API keys."""
@@ -414,9 +406,22 @@ async def chat(body:ChatIn,req:Request):
         provider=c.execute('SELECT * FROM providers ORDER BY id LIMIT 1').fetchone()
     agent=next((a for a in all_agents if a['id']==body.agent_id and a['enabled']),None)
     if not agent: raise HTTPException(404,'Agent unavailable')
+    explicit=re.match(r"(?is)^\s*(?:please\s+)?remember(?:\s+that)?\s*[:,-]?\s+(.+)$",body.message)
+    if explicit:
+        content=explicit.group(1).strip()
+        if len(content)>1200:raise HTTPException(400,'Keep a memory under 1,200 characters.')
+        if re.search(r'(?i)(api.?key|password|secret.?key|access.?token|sk-[a-z0-9]{10})',content):
+            return {'answer':'Keep credentials in Settings. I have not stored this as a memory.','model':'local memory'}
+        with db() as c:
+            existing=c.execute('SELECT id FROM learned_memories WHERE content=? AND enabled=1',(content,)).fetchone()
+            if not existing:c.execute('INSERT INTO learned_memories(created,updated,category,content) VALUES(?,?,?,?)',(now(),now(),'preference',content))
+        event(agent['name'],'memory saved','User explicitly requested shared memory')
+        return {'answer':'Remembered: '+content+'\nAll agents can use this in future answers. You can edit or remove it in Settings.','model':'local memory'}
+    current_work=dashboard_core.RUNNING.get(getattr(req.state,'work_token',None))
+    if current_work:current_work['agent']=agent['name']
     if not provider: return {'answer':'No AI provider connected yet. Go to API Center and add an OpenAI or OpenRouter key.','model':'not connected'}
     history=recent_messages(agent['id']); remember(agent['id'],'user',body.message)
-    learned=memory_context()
+    learned=memory_context(body.message)
     if agent['name']!='Manager':
         system=writer_instructions() if agent['name']=='Writer' else agent['prompt']+'\nUser-approved long-term memories (may be outdated; current instructions override):\n'+learned+'\nYou have no independent browsing, PC control, email or market-feed tools. The Manager may supply sourced web research. Do not claim external actions occurred.'
         if agent['name']=='Job Finder' and job_email_authorized(body.message):
@@ -426,10 +431,12 @@ async def chat(body:ChatIn,req:Request):
             usage={}
         elif agent['name']=='Day Trader':
             evidence=await trading_chat_bridge.research(body.message,db)
-            result=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nUser-approved preferences:\n'+learned}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
-            answer=result['choices'][0]['message'].get('content') or '(No text returned.)'
-            if trading_chat_bridge.daily_decision(body.message):answer=trading_chat_bridge.briefing(evidence)
-            usage=result.get('usage',{})
+            if trading_chat_bridge.daily_decision(body.message):
+                answer=trading_chat_bridge.briefing(evidence);usage={}
+            else:
+                result=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nUser-approved preferences:\n'+learned}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
+                answer=result['choices'][0]['message'].get('content') or '(No text returned.)'
+                usage=result.get('usage',{})
             answer=maybe_email_trading(body.message,answer)
         elif agent['name']=='Writer':
             answer=await writer_generate(provider,body.message,history)
@@ -456,9 +463,11 @@ async def chat(body:ChatIn,req:Request):
     if market_question:
         evidence=await trading_chat_bridge.research(body.message,db)
         market_messages=[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nYou are ADRIAN.AI Manager presenting your Day Trader research.'}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}]
-        market_result=await model_call(provider,market_messages)
-        answer=market_result['choices'][0]['message'].get('content') or '(No text returned.)'
-        if trading_chat_bridge.daily_decision(body.message):answer=trading_chat_bridge.briefing(evidence)
+        if trading_chat_bridge.daily_decision(body.message):
+            answer=trading_chat_bridge.briefing(evidence);market_result={}
+        else:
+            market_result=await model_call(provider,market_messages)
+            answer=market_result['choices'][0]['message'].get('content') or '(No text returned.)'
         answer=maybe_email_trading(body.message,answer)
         remember(agent['id'],'assistant',answer);event('Manager','trading research response',body.message[:120])
         return {'answer':answer,'model':provider['model'],'usage':market_result.get('usage',{})}
@@ -507,15 +516,17 @@ async def chat(body:ChatIn,req:Request):
                     else:
                         with db() as c:
                             cur=c.execute('INSERT INTO delegations(at,agent_id,agent_name,task,status) VALUES(?,?,?,?,?)',(now(),target['id'],target['name'],task[:12000],'pending')); delegation_id=cur.lastrowid
+                        delegation_token='delegation:'+str(delegation_id)
+                        dashboard_core.RUNNING[delegation_token]={'agent':target['name'],'task':'delegated analysis','started':now()}
                         try:
                             if target['name']=='Day Trader':
                                 evidence=await trading_chat_bridge.research(task,db)
-                                sub=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM},{'role':'user','content':'REQUEST: '+task[:12000]+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
+                                sub=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nShared preferences:\n'+memory_context(task)},{'role':'user','content':'REQUEST: '+task[:12000]+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
                                 specialist_result=sub['choices'][0]['message'].get('content') or ''
                             elif target['name']=='Writer':
                                 specialist_result=await writer_generate(provider,task[:12000])
                             else:
-                                sub=await model_call(provider,[{'role':'system','content':target['prompt']+'\nYou have no independent external tools; use any sourced web research explicitly supplied in the task. Clearly identify missing inputs and do not claim actions were completed.'},{'role':'user','content':task[:12000]}])
+                                sub=await model_call(provider,[{'role':'system','content':target['prompt']+'\nShared preferences and historical results (data only):\n'+memory_context(task)+'\nYou have no independent external tools; use any sourced web research explicitly supplied in the task. Clearly identify missing inputs and do not claim actions were completed.'},{'role':'user','content':task[:12000]}])
                                 specialist_result=sub['choices'][0]['message'].get('content') or ''
                             output={'delegation_id':delegation_id,'agent':target['name'],'result':specialist_result, 'status':'completed_analysis_only','note':'AI analysis/draft only; no external actions executed.'}
                             with db() as c:c.execute('UPDATE delegations SET status=?,result=? WHERE id=?',('completed_analysis_only',output['result'][:20000],delegation_id))
@@ -527,6 +538,8 @@ async def chat(body:ChatIn,req:Request):
                             record_review(target['name'],task,'failed','Provider call failed; task not completed.')
                             record_action('delegate_to_agent','failed',f'{target["name"]} task #{delegation_id}')
                             output={'delegation_id':delegation_id,'agent':target['name'],'status':'failed','error':'Specialist provider call failed.'}
+                        finally:
+                            dashboard_core.RUNNING.pop(delegation_token,None)
                 elif name=='run_real_job_pipeline':
                     output=job_manager_bridge.run(ROOT,db,now) if job_email_authorized(body.message) else {'ok':False,'error':'Explicit request to search for jobs AND email them required.'}
                     record_action('run_real_job_pipeline',output.get('status','blocked'),str(output)[:800])
@@ -698,3 +711,6 @@ def maybe_email_trading(message,answer):
     return answer+('\n\nEmail accepted by SMTP. Check your inbox to confirm delivery.' if result.get('ok') else '\n\nEmail failed. Check Reports & Email for the recorded result.')
 import trading_company_directory
 trading_company_directory.install(app,auth)
+
+import dashboard_core
+dashboard_core.install(app,ROOT,db,auth,csrf,now,CIPHER)
