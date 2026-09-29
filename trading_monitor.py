@@ -16,6 +16,11 @@ import trading_division as td
 import trading_lab as lab
 
 ROOT = Path(__file__).resolve().parent
+# Load local secrets only; never store SMTP credentials in GitHub.
+for line in (ROOT / ".env").read_text(encoding="utf-8-sig").splitlines() if (ROOT / ".env").exists() else []:
+    if line and not line.lstrip().startswith("#") and "=" in line:
+        name, value = line.split("=", 1)
+        os.environ.setdefault(name.strip(), value.strip())
 DB = ROOT / "trading_monitor.db"
 TZ = ZoneInfo("America/Toronto")
 RECIPIENT = "amazingchefadrian@gmail.com"
