@@ -200,6 +200,9 @@ def safe_url(url):
     return url.rstrip('/')
 @app.get('/')
 def index(): return FileResponse(ROOT/'static/index.html')
+@app.get('/favicon.svg')
+def favicon(): return FileResponse(ROOT/'static/a5-crown.svg',media_type='image/svg+xml')
+
 @app.get('/manifest.webmanifest')
 def manifest(): return FileResponse(ROOT/'static/manifest.webmanifest',media_type='application/manifest+json')
 @app.get('/sw.js')
