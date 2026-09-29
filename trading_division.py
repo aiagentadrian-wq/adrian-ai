@@ -86,7 +86,7 @@ def install(app,db,auth,csrf):
         auth(req)
         return {'agents':[{'name':n,'role':d} for n,d in AGENTS],'connections':{x:bool(key(y)) for x,y in [('Twelve Data','TWELVE_DATA_API_KEY'),('GNews','GNEWS_API_KEY'),('FRED','FRED_API_KEY'),('SEC EDGAR','SEC_USER_AGENT')]},'public_sources':['Bank of Canada','Statistics Canada'],'mode':'research_and_manual_paper_journal','ml_status':'not trained; requires timestamped historical dataset and walk-forward evaluation','live_orders_enabled':False}
     @app.get('/api/trading/market')
-    async def market_route(req:Request,symbol:str='AAPL',interval:str='1day'):
+    async def market_route(req:Request,symbol:str,interval:str='1day'):
         auth(req)
         if not __import__('re').fullmatch(r'[A-Za-z0-9.:-]{1,24}',symbol):raise HTTPException(400,'Invalid symbol')
         if interval not in ('1day','1h','15min'):raise HTTPException(400,'Unsupported interval')
