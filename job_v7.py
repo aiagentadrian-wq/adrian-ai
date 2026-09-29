@@ -102,7 +102,7 @@ def install(app, root, db, auth, csrf, now, record_action, event, model_call, ci
         with db() as c:
             row=c.execute('SELECT id FROM job_v7_postings WHERE id=?',(jid,)).fetchone()
             if not row:raise HTTPException(404,'Posting not found')
-            c.execute('UPDATE job_v7_postings SET draft=?,approved=0,emailed=0 WHERE id=?',(body.draft.strip(),jid))
+            c.execute('UPDATE job_v7_postings SET draft=?,approved=0 WHERE id=?',(body.draft.strip(),jid))
         return {'ok':True,'note':'Saved locally; approval reset. Review claims before approval.'}
     @app.get('/api/jobs/v7/postings/{jid}/docx')
     def get_docx(jid:int,req:Request):
