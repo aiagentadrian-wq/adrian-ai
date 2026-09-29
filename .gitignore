@@ -1,0 +1,48 @@
+﻿# Credentials and private configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Databases and runtime files
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.lock
+*.log
+logs/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Personal documents and generated files
+*.pdf
+*.zip
+
+# Previous updates and backups
+*backup*/
+*backup*
+*before*
+*-update/
+*-upgrade/
+*-fix/
+adrian-v7-*/
+adrian-intelligence-upgrade/
+adrian-manager-bridge/
+adzuna-update/
+application-update/
+complete-update/
+email-fix/
+email_fix/
+original-style-update/
+trading_upgrade/
+
+# Local backups
+backups/
+*.bak
