@@ -100,10 +100,15 @@ def format_report(kind, rows, local):
             lines.append("Risks: stale feed, volatility, liquidity and event-driven price gaps. Recheck before acting.")
             lines.append("Feed limitation: " + row.get("feed_note", ""))
         for item in row.get("news", []):
+            # Exclude unrelated broad-search hits; headlines are not verified facts.
+            headline = (str(item.get("title") or "") + " " + str(item.get("description") or "")).lower()
+            if row["symbol"].lower() not in headline and not any(term in headline for term in {"AAPL": ("apple", "iphone"), "MSFT": ("microsoft",), "AMD": ("advanced micro devices",), "SHOP": ("shopify",), "SOFI": ("sofi",), "PLTR": ("palantir",)}.get(row["symbol"], ())):
+                continue
             lines.append("News: " + str(item.get("published_at")) + " | " + str(item.get("source")) +
                          " | " + str(item.get("title")) + " | " + str(item.get("url")))
         lines.extend(row["errors"])
         lines.append("")
+    lines.append("Headlines are attributed publisher claims, not independent verification or market consensus.")
     lines.append("No trained ML forecast is implied. Verify events, company filings and source independence separately.")
     return "\n".join(lines)
 
