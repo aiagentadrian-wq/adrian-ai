@@ -2,7 +2,7 @@
 import argparse,py_compile,shutil
 from pathlib import Path
 from datetime import datetime
-FILES=['app.py','trading_chat_bridge.py','static/index.html','job_v7_packages.py','resume_test_email.py','requirements.txt','test_trading_upgrade.py']
+FILES=['app.py','trading_chat_bridge.py','trading_division.py','trading_monitor.py','trading_company_directory.py','trading_lab.py','job_v7.py','static/index.html','static/a5-crown.svg','static/manifest.webmanifest','job_v7_packages.py','resume_test_email.py','requirements.txt','test_trading_upgrade.py','test_trading_monitor.py','TRADING_CHAT_UPGRADE.md']
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('target',help='Existing command-center folder containing app.py and .env')
     args=parser.parse_args();source=Path(__file__).resolve().parent;target=Path(args.target).resolve()
@@ -20,3 +20,4 @@ def main():
     print('Upgrade copied. Existing .env and databases preserved. Source backup:',backup)
     print('Next: install requirements with your .venv Python, restart the server, and test chat/email.')
 if __name__=='__main__':main()
+

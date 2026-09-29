@@ -54,6 +54,19 @@ class UpgradeTests(unittest.TestCase):
         async def failed(*args):raise bridge.HTTPException(502,'Feed unavailable')
         with patch.object(bridge.td,'market',failed):r=asyncio.run(bridge.research('Compare $AMD and $MSFT',self.db))
         self.assertEqual(r['ranking'],[]);self.assertTrue(r['decision'].startswith('No suitable candidate'))
+    def test_briefing_has_no_trade_without_evidence(self):
+        evidence={'checked_utc':'2026-09-29T21:00:00+00:00','ranking':[]}
+        text=bridge.briefing(evidence)
+        self.assertIn('No suitable trade today',text)
+        self.assertNotIn('stop_reference',text)
+    def test_owner_resume_test_without_saved_posting(self):
+        self.conn.execute('INSERT INTO job_v7_resume(content) VALUES(?)',(RESUME,))
+        with patch.dict(os.environ,{'EMAIL_FROM':'sender@example.org','REPORT_TO':'owner@example.org'}):msg=build_test(self.db)
+        self.assertIn('General resume test',msg.get_body(preferencelist=('plain',)).get_content())
+        pdf=list(msg.iter_attachments())[0].get_payload(decode=True)
+        text='\n'.join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+        self.assertIn('Example Kitchen',text)
+        self.assertNotIn('Seeking the',text)
     def test_ats_text_order_and_test_attachment_no_job_flags(self):
         job={'employer':'Example Store','title':'Retail Associate','location':'Test City','url':'https://example.org/job','description':'Customer service role'}
         pdf,_=make_pdf(RESUME,job);text='\n'.join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)

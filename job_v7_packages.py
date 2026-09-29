@@ -142,7 +142,6 @@ def make_original_pdf(resume,job):
     c.save();return b.getvalue(),len(skills)
 
 
-
 def make_pdf(resume,job):
     """Single-column ATS text order. Preserve source facts; tailor the target role."""
     from reportlab.platypus import SimpleDocTemplate,Spacer,KeepTogether
@@ -159,20 +158,22 @@ def make_pdf(resume,job):
     name,contact,education,jobs=parse(resume)
     title=clean(job.get('title',''))
     employer=clean(job.get('employer',''))
-    if not title or not employer:raise ValueError('Employer and job title required')
+    if bool(title)!=bool(employer):raise ValueError('Supply both employer and job title, or neither for a general resume')
     lines=[x.strip() for x in resume.splitlines() if x.strip()]
     start=lines.index('CORE SKILLS')+1 if 'CORE SKILLS' in lines else 0
     end=lines.index('EDUCATION') if 'EDUCATION' in lines else start
     skills=lines[start:end]
     education=education[:next((i for i,x in enumerate(education) if x in ('PROFILE','EXPERIENCE') or 'References' in x),len(education))]
     styles=getSampleStyleSheet()
-    body=ParagraphStyle('atsbody',fontName='ATSSans',fontSize=10,leading=14,spaceAfter=5,textColor=colors.HexColor('#202020'))
-    heading=ParagraphStyle('atssection',parent=body,fontName='ATSSansBold',fontSize=11,spaceBefore=13,spaceAfter=7)
+    body=ParagraphStyle('atsbody',fontName='ATSSans',fontSize=9.3,leading=12.5,spaceAfter=3,textColor=colors.HexColor('#202020'))
+    heading=ParagraphStyle('atssection',parent=body,fontName='ATSSansBold',fontSize=11,spaceBefore=10,spaceAfter=5,keepWithNext=True)
     role=ParagraphStyle('atsrole',parent=body,fontName='ATSSansBold',spaceBefore=7)
     def para(text,style=body):return Paragraph(escape(text.replace('•','-').replace('–','-').replace('—','-')),style)
-    story=[para(name,ParagraphStyle('atsname',parent=heading,fontSize=20,leading=24)),para(contact),para(title+' | '+employer),para('PROFILE',heading)]
+    story=[para(name,ParagraphStyle('atsname',parent=heading,fontSize=20,leading=24)),para(contact)]
+    if title:story.append(para(title+' | '+employer))
+    story.append(para('PROFILE',heading))
     experience=', '.join(dict.fromkeys(j['role'].lower() for j in jobs))
-    story.append(para('Experience as '+experience+'. Seeking the '+title+' position at '+employer+'.'))
+    story.append(para('Experience as '+experience+'.'+(' Seeking the '+title+' position at '+employer+'.' if title else '')))
     story.append(para('EXPERIENCE',heading))
     for j in jobs:
         story.append(KeepTogether([para(j['role']+' | '+j['employer'],role),para(j['date'])]))

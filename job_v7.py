@@ -14,7 +14,7 @@ def install(app, root, db, auth, csrf, now, record_action, event, model_call, ci
     with db() as c:
         c.executescript('''CREATE TABLE IF NOT EXISTS job_v7_resume(id INTEGER PRIMARY KEY, filename TEXT NOT NULL, content TEXT NOT NULL, created TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS job_v7_postings(id INTEGER PRIMARY KEY, source TEXT NOT NULL, employer TEXT NOT NULL, title TEXT NOT NULL, location TEXT NOT NULL, url TEXT NOT NULL UNIQUE, description TEXT NOT NULL, pay TEXT, found TEXT NOT NULL, score INTEGER, reasoning TEXT, draft TEXT, approved INTEGER NOT NULL DEFAULT 0, emailed INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS job_v7_runs(id INTEGER PRIMARY KEY, at TEXT NOT NULL, mode TEXT NOT NULL, found INTEGER NOT NULL, emailed INTEGER NOT NULL, status TEXT NOT NULL);''')
+        CREATE TABLE IF NOT EXISTS job_v7_likes(posting_id INTEGER PRIMARY KEY, liked_at TEXT NOT NULL);\n        CREATE TABLE IF NOT EXISTS job_v7_runs(id INTEGER PRIMARY KEY, at TEXT NOT NULL, mode TEXT NOT NULL, found INTEGER NOT NULL, emailed INTEGER NOT NULL, status TEXT NOT NULL);''')
     class ResumeIn(BaseModel):
         filename:str=Field(min_length=5,max_length=150)
         data:str=Field(min_length=20,max_length=4000000)
@@ -72,7 +72,16 @@ def install(app, root, db, auth, csrf, now, record_action, event, model_call, ci
     @app.get('/api/jobs/v7/postings')
     def postings(req:Request):
         auth(req)
-        with db() as c:return {'items':[dict(r) for r in c.execute('SELECT id,source,employer,title,location,url,pay,found,score,reasoning,approved,emailed FROM job_v7_postings ORDER BY id DESC LIMIT 100')]}
+        with db() as c:return {'items':[dict(r) for r in c.execute('SELECT p.id,p.source,p.employer,p.title,p.location,p.url,p.pay,p.found,p.score,p.reasoning,p.approved,p.emailed,CASE WHEN l.posting_id IS NULL THEN 0 ELSE 1 END AS liked FROM job_v7_postings p LEFT JOIN job_v7_likes l ON l.posting_id=p.id ORDER BY p.id DESC LIMIT 100')]}
+    @app.put('/api/jobs/v7/postings/{jid}/liked')
+    def set_liked(jid:int,body:dict,req:Request):
+        csrf(req)
+        if type(body.get('liked')) is not bool:raise HTTPException(400,'liked must be true or false')
+        with db() as c:
+            if not c.execute('SELECT 1 FROM job_v7_postings WHERE id=?',(jid,)).fetchone():raise HTTPException(404,'Posting not found')
+            if body['liked']:c.execute('INSERT OR REPLACE INTO job_v7_likes(posting_id,liked_at) VALUES(?,?)',(jid,now()))
+            else:c.execute('DELETE FROM job_v7_likes WHERE posting_id=?',(jid,))
+        return {'ok':True,'liked':body['liked']}
     async def generate(provider, instructions, prompt):
         response=await model_call(provider,[{'role':'system','content':instructions},{'role':'user','content':prompt}])
         return (response['choices'][0]['message'].get('content') or '').strip()
@@ -85,8 +94,8 @@ def install(app, root, db, auth, csrf, now, record_action, event, model_call, ci
             provider=c.execute('SELECT * FROM providers ORDER BY id LIMIT 1').fetchone()
         if not j:raise HTTPException(404,'Posting not found')
         if not provider:raise HTTPException(400,'Connect an AI provider first')
-        instructions=('You are a careful resume editor. Use only facts explicitly present in the supplied resume. Never invent qualifications, dates, credentials, availability, languages, achievements, or experience. The Chipotle-specific summary is a previous tailoring example, not proof of work at Chipotle. Never claim an application was sent. Return a plain-text resume with name/contact, profile, skills, experience and education. Do not include a made-up employer in work history.')
-        draft=await generate(provider,instructions,'ORIGINAL RESUME:\n'+r['content']+'\n\nTARGET POSTING:\n'+j['employer']+' | '+j['title']+' | '+j['location']+'\n'+j['description']+'\n\nTailor the resume to this role using only original facts. No preface.')
+        instructions=('Create an ATS-readable single-column plain-text resume, tailored to the supplied job description. Use ONLY facts supported by the original resume. Never invent employers, dates, qualifications, credentials, skills, metrics, languages, availability, education or achievements. Previous tailored summaries are not proof of employment. Match the job requirements by reordering and rewriting supported skills and experience, not by inserting unsupported keywords. Standard headings: NAME AND CONTACT, PROFESSIONAL SUMMARY, SKILLS, EXPERIENCE or RELEVANT EXPERIENCE, EDUCATION, and ADDITIONAL INFORMATION only if supported. Preserve employer names, job titles and dates as given. No tables, columns, graphics, icons, rating bars, text boxes or decorative characters. Use concise factual bullets. Omit unknown details. No guarantee of passing automated screening. Output the resume only.')
+        draft=await generate(provider,instructions,'ORIGINAL RESUME:\n'+r['content']+'\n\nTARGET POSTING:\n'+j['employer']+' | '+j['title']+' | '+j['location']+'\n'+j['description']+'\n\nIdentify the actual job requirements and reflect substantiated matches in the summary, skills and experience wording. Keep a simple single-column ATS-readable structure. Do not invent missing qualifications. No preface.')
         if not draft:raise HTTPException(502,'AI returned an empty draft')
         # Explainable fit score is a heuristic, not a hiring prediction.
         source=(r['content']+' '+j['description']).lower();desc=j['description'].lower();matches=[w for w in ('food','kitchen','customer','service','team','clean','retail','warehouse','stock','cash','cook','prep','safety','organize') if w in r['content'].lower() and w in desc]

@@ -6,3 +6,5 @@ python-multipart>=0.0.9,<1
 
 reportlab>=4,<5
 pypdf>=5,<7
+
+tzdata>=2025.2
