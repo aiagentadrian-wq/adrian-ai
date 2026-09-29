@@ -266,6 +266,9 @@ def remove_provider(pid:int,req:Request):
 class ChatIn(BaseModel): message:str=Field(min_length=1,max_length=12000); agent_id:int=1
 async def model_call(provider, messages, tools=None):
     key=CIPHER.decrypt(provider['secret']).decode()
+    messages=[dict(m) for m in messages]
+    if messages and messages[0].get('role')=='system':
+        messages[0]['content'] += '\nCOMMUNICATION: Answer first in clear everyday language. Default to a short useful answer, usually under 180 words. Avoid jargon, filler and raw JSON dumps. Expand when asked. Use conversation context for follow-ups. Never claim an action without its tool result.'
     payload={'model':provider['model'],'messages':messages,'max_tokens':1400}
     if tools: payload['tools']=tools; payload['tool_choice']='auto'
     try:
@@ -392,9 +395,10 @@ async def chat(body:ChatIn,req:Request):
             usage={}
         elif agent['name']=='Day Trader':
             evidence=await trading_chat_bridge.research(body.message,db)
-            result=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM+'\n'+agent['prompt']},{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
+            result=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nUser-approved preferences:\n'+learned}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
             answer=result['choices'][0]['message'].get('content') or '(No text returned.)'
             usage=result.get('usage',{})
+            answer=maybe_email_trading(body.message,answer)
         elif agent['name']=='Writer':
             answer=await writer_generate(provider,body.message,history)
             usage={}
@@ -413,15 +417,16 @@ async def chat(body:ChatIn,req:Request):
             usage=result.get('usage',{})
         remember(agent['id'],'assistant',answer);event(agent['name'],'answered question',body.message[:120]);return {'answer':answer,'model':provider['model'],'usage':usage}
     messages=[{'role':'system','content':manager_instructions(all_agents)+'\nUser-approved long-term memories (may be outdated; current instructions override):\n'+learned+'\nOnly save memories through the tool after an explicit request. Do not claim to learn by retraining or modify your own code. For actions, report tool results accurately. Use general_web_search when current or externally verified information is required, not trained-memory guesses. If search fails say so. For Ontario weather clarify city if needed; use Whitby only if user indicates their location. Include source links and checked time. Do not pretend public web search is a live brokerage market feed.'}]+history+[{'role':'user','content':body.message}]
-    messages[0]['content'] += '\nFor stock market or trading questions, call research_trading to get actual timestamped data. Do not delegate without data or invent quotes. If no ticker/watchlist, ask for tickers.'
+    messages[0]['content'] += '\nFor stock market or trading questions, call research_trading to get actual timestamped data. Do not delegate without data or invent quotes. For a broad daily choice compare the configured candidate universe; never silently default to Apple.'
     manager_tools=MANAGER_TOOLS+[TRADING_RESEARCH_TOOL]
     # Deterministic grounding for market questions: do not rely on optional tool selection.
-    market_question=bool(re.search(r'\b(invest|investing|stock|stocks|ticker|shares|trading|trade setup|market outlook|portfolio|day trad|swing trad)\b',body.message,re.I))
+    market_question=bool(re.search(r'\b(invest|investing|stock|stocks|ticker|shares|trading|trade setup|market outlook|portfolio|day trad|swing trad|what should i buy|best trade)\b',body.message,re.I))
     if market_question:
         evidence=await trading_chat_bridge.research(body.message,db)
         market_messages=[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nYou are ADRIAN.AI Manager presenting your Day Trader research.'}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}]
         market_result=await model_call(provider,market_messages)
         answer=market_result['choices'][0]['message'].get('content') or '(No text returned.)'
+        answer=maybe_email_trading(body.message,answer)
         remember(agent['id'],'assistant',answer);event('Manager','trading research response',body.message[:120])
         return {'answer':answer,'model':provider['model'],'usage':market_result.get('usage',{})}
     result=await model_call(provider,messages,manager_tools)
@@ -636,3 +641,25 @@ trading_lab.install(app,db,auth,csrf,trading_division)
 
 # Read-only trading chat bridge; routes data through installed research connectors.
 import trading_chat_bridge
+
+
+@app.post('/api/jobs/v7/test-ats-email')
+def test_ats_email(req:Request):
+    csrf(req)
+    from resume_test_email import send_test
+    try:result=send_test(db)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    except Exception:
+        record_action('test_ats_email','failed','Test email failed; check local resume and SMTP configuration')
+        raise HTTPException(502,'Test email failed. Check your saved resume, posting and SMTP settings.')
+    record_action('test_ats_email',result['status'],'Owner-only ATS resume test; job flags unchanged')
+    return result
+
+
+def maybe_email_trading(message,answer):
+    explicit=bool(re.search(r'(?i)\b(?:email|e-mail|mail)\s+(?:me|this|it|the|my)\b|\bsend\b.{0,40}\bemail\b',message))
+    negative=bool(re.search(r"(?i)\b(?:do not|don't|don’t|never|without)\s+(?:send|email|mail)|\bdraft only\b",message))
+    if not explicit or negative:return answer
+    try:result=send_owner_email('ADRIAN.AI - Trading watch briefing',answer[:12000])
+    except HTTPException:return answer+'\n\nEmail could not be sent. Check your local SMTP configuration.'
+    return answer+('\n\nEmail accepted by SMTP. Check your inbox to confirm delivery.' if result.get('ok') else '\n\nEmail failed. Check Reports & Email for the recorded result.')
