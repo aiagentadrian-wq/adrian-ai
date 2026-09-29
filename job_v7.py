@@ -94,6 +94,39 @@ def install(app, root, db, auth, csrf, now, record_action, event, model_call, ci
         reasoning='Shared resume/posting terms: '+(', '.join(matches) if matches else 'none found')+'. Heuristic only; schedule, pay, eligibility and employer requirements need manual confirmation.'
         with db() as c:c.execute('UPDATE job_v7_postings SET score=?,reasoning=?,draft=?,approved=0 WHERE id=?',(score,reasoning,draft[:22000],jid))
         return {'ok':True,'score':score,'reasoning':reasoning,'draft':draft,'warning':'Review every claim against your original resume before approving.'}
+    class DraftEdit(BaseModel):
+        draft:str=Field(min_length=50,max_length=22000)
+    @app.put('/api/jobs/v7/postings/{jid}/draft')
+    def edit_draft(jid:int,body:DraftEdit,req:Request):
+        csrf(req)
+        with db() as c:
+            row=c.execute('SELECT id FROM job_v7_postings WHERE id=?',(jid,)).fetchone()
+            if not row:raise HTTPException(404,'Posting not found')
+            c.execute('UPDATE job_v7_postings SET draft=?,approved=0,emailed=0 WHERE id=?',(body.draft.strip(),jid))
+        return {'ok':True,'note':'Saved locally; approval reset. Review claims before approval.'}
+    @app.get('/api/jobs/v7/postings/{jid}/docx')
+    def get_docx(jid:int,req:Request):
+        auth(req)
+        with db() as c:r=c.execute('SELECT draft FROM job_v7_postings WHERE id=?',(jid,)).fetchone()
+        if not r or not r['draft']:raise HTTPException(404,'No draft generated')
+        try:
+            from docx import Document
+            from docx.shared import Inches,Pt
+        except ImportError:raise HTTPException(503,'Install python-docx in your virtual environment')
+        doc=Document();section=doc.sections[0]
+        section.top_margin=section.bottom_margin=Inches(.65)
+        section.left_margin=section.right_margin=Inches(.75)
+        normal=doc.styles['Normal'];normal.font.name='Calibri';normal.font.size=Pt(10.5)
+        headings={'NAME AND CONTACT','PROFESSIONAL SUMMARY','SKILLS','EXPERIENCE','RELEVANT EXPERIENCE','EDUCATION','ADDITIONAL INFORMATION'}
+        for line in r['draft'].splitlines():
+            line=line.strip()
+            if not line:continue
+            if line.upper().rstrip(':') in headings:doc.add_paragraph(line.upper().rstrip(':'),style='Heading 2')
+            elif line.startswith(('- ','• ')):doc.add_paragraph(line[2:],style='List Bullet')
+            else:doc.add_paragraph(line)
+        out=io.BytesIO();doc.save(out)
+        from fastapi.responses import Response
+        return Response(out.getvalue(),media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',headers={'Content-Disposition':f'attachment; filename="tailored_resume_{jid}.docx"'})
     @app.get('/api/jobs/v7/postings/{jid}/draft')
     def draft(jid:int,req:Request):
         auth(req)
