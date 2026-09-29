@@ -1,5 +1,5 @@
 """ADRIAN.AI V7: private resume vault, reviewed applications and deduplicated briefings."""
-import base64, hashlib, io, json, os, re, sqlite3, ssl, smtplib, email.message, zipfile
+import base64, hashlib, html, io, json, os, re, sqlite3, ssl, smtplib, email.message, zipfile
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -140,6 +140,32 @@ def install(app, root, db, auth, csrf, now, record_action, event, model_call, ci
         except Exception:raise HTTPException(502,'SMTP failed; nothing marked emailed')
         with db() as c:c.execute('INSERT INTO email_history(at,subject,body,recipient,sender,status,error) VALUES(?,?,?,?,?,?,?)',(now(),subject,body,to,sender,'accepted_by_smtp',None))
         return {'ok':True,'status':'accepted_by_smtp','note':'Inbox delivery not independently verified'}
+    @app.post('/api/jobs/v7/resume-test-email')
+    def resume_test_email(req:Request):
+        csrf(req)
+        saved=resume()
+        if not saved:raise HTTPException(400,'Upload your original resume first')
+        with db() as c:
+            tailored=c.execute('SELECT id,draft,employer,title FROM job_v7_postings WHERE approved=1 AND draft IS NOT NULL ORDER BY id DESC LIMIT 1').fetchone()
+        if not tailored:
+            raise HTTPException(400,'Review and approve a tailored ATS resume first. No unreviewed draft will be emailed.')
+        target='amazingchefadrian@gmail.com'
+        host=os.getenv('SMTP_HOST');user=os.getenv('SMTP_USER');pwd=os.getenv('SMTP_PASSWORD');sender=os.getenv('EMAIL_FROM')
+        if not all((host,user,pwd,sender)):raise HTTPException(400,'SMTP is not configured in local .env; no email sent')
+        raw=pdf_bytes('Resume',tailored['draft'])
+        msg=email.message.EmailMessage()
+        msg['From']=sender;msg['To']=target;msg['Subject']='ADRIAN.AI | ATS resume test | '+tailored['title']
+        msg.set_content('This is the one-time ATS resume delivery test you requested. The attached resume was reviewed and approved in Application Desk. No employer application was submitted.\n\nTarget role: '+tailored['employer']+' | '+tailored['title']+'\n')
+        msg.add_alternative('<html><body style="background:#101722;color:#e8edf2;font:15px Arial,sans-serif;padding:24px"><div style="max-width:620px;margin:auto;background:#1b2532;border:1px solid #9b7a3e;border-radius:14px;padding:28px"><p style="color:#e8c780;letter-spacing:2px">ADRIAN.AI · APPLICATION DESK</p><h1>ATS resume test</h1><p>Your reviewed resume is attached as a simple, text-based PDF.</p><p>Target role: '+html.escape(tailored['employer'])+' | '+html.escape(tailored['title'])+'</p><p style="color:#b8c0ca">Test delivery only. No application was submitted.</p></div></body></html>',subtype='html')
+        msg.add_attachment(raw,maintype='application',subtype='pdf',filename='Adrian_ATS_resume_test.pdf')
+        try:
+            with smtplib.SMTP(host,int(os.getenv('SMTP_PORT','587')),timeout=25) as smtp:
+                smtp.starttls(context=ssl.create_default_context());smtp.login(user,pwd)
+                refused=smtp.send_message(msg)
+                if refused:raise ValueError('Recipient refused')
+        except Exception:raise HTTPException(502,'SMTP delivery attempt failed; inbox delivery not confirmed')
+        with db() as c:c.execute('INSERT INTO email_history(at,subject,body,recipient,sender,status,error) VALUES(?,?,?,?,?,?,?)',(now(),msg['Subject'],'One-time reviewed resume test',target,sender,'accepted_by_smtp',None))
+        return {'ok':True,'status':'accepted_by_smtp','recipient':target,'note':'Inbox delivery not independently verified; no employer application submitted'}
     @app.post('/api/jobs/v7/email-approved')
     def email_approved(req:Request):
         csrf(req)
