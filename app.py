@@ -639,3 +639,6 @@ trading_lab.install(app,db,auth,csrf,trading_division)
 
 # Read-only trading chat bridge; routes data through installed research connectors.
 import trading_chat_bridge
+
+import trading_company_directory
+trading_company_directory.install(app,auth)
