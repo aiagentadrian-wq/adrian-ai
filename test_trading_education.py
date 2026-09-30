@@ -46,7 +46,7 @@ class CourseKnowledgeTests(unittest.TestCase):
 
     def test_all_trading_model_paths_use_context(self):
         app=Path(__file__).with_name('app.py').read_text(encoding='utf-8')
-        self.assertEqual(app.count('trading_chat_bridge.system_prompt('),3)
+        self.assertEqual(app.count('trading_chat_bridge.system_prompt('),4)
         self.assertNotIn('trading_chat_bridge.SYSTEM+',app)
 
 if __name__=='__main__':unittest.main()

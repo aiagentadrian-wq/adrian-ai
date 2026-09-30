@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 DB = None
 RUNNING = {}
 CATALOG = [
+    ('yfinance','Yahoo Finance / yfinance','Historical OHLCV for learned swing models; delayed research data','public'),
     ('alpaca','Alpaca Paper','Simulated account and IEX-only market data',None),
     ('gmail','Gmail approvals','Authenticated approval replies and trading reports',None),
     ('openai','OpenAI','AI reasoning and hosted web search',None),
@@ -190,6 +191,8 @@ def install(app, root, db, auth, csrf, now, cipher):
             return await call_next(req)
         label='Manager'
         if '/writer' in path:label='Writer'
+        elif '/swing' in path:label='Swing Trader'
+        elif '/experiment' in path or '/paper' in path:label='Day Trader'
         elif '/jobs' in path or '/job-radar' in path:label='Job Finder'
         elif '/trading' in path:label='Day Trader'
         # Chat bodies are read by the endpoint; endpoint sets the actual specialist.
@@ -326,6 +329,14 @@ def install(app, root, db, auth, csrf, now, cipher):
         for p in providers:
             checks.append(one(service_for(p['base_url']),p['base_url']+'/models',{}, {'Authorization':'Bearer '+cipher.decrypt(p['secret']).decode()}))
         await asyncio.gather(*checks)
+        def check_yahoo():
+            try:
+                import yfinance as yf
+                frame=yf.download('SPY',period='5d',progress=False,threads=False,timeout=15)
+                if frame is None or frame.empty:raise ValueError('No historical OHLCV returned')
+                observe('yfinance','verified','Historical SPY OHLCV request succeeded. This is not verified live trading data.')
+            except Exception:observe('yfinance','unreachable','Historical data request failed; learned swing training requires valid completed data.')
+        await asyncio.to_thread(check_yahoo)
         if next(x for x in current if x['id']=='smtp')['configured']:
             await asyncio.to_thread(check_smtp)
         # A models-list check verifies authentication, not whether a model invocation will work.

@@ -223,4 +223,4 @@ function tradingWorkspace(){
  window.reloadCompanyDirectory=()=>{if(directory.length)return;return api('trading/company-directory').then(d=>{directory=d.items||[];if(directory.length)renderCompanyList();else $('trcompanynote').textContent=d.coverage+' — '+(d.error||d.status)+'. Enter a ticker manually.'}).catch(e=>$('trcompanynote').textContent='Directory unavailable: '+e.message+'. Enter a ticker manually.');};
 }
 tradingWorkspace();
-</script><script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script><script src="/dashboard.js"></script><script src="/paper.js"></script></body></html>
+</script><script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script><script src="/dashboard.js"></script><script src="/paper.js"></script><script src="/swing.js"></script></body></html>

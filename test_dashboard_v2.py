@@ -30,12 +30,24 @@ class DashboardTests(unittest.TestCase):
         cls.client.close();cls.env.stop();sys.path.pop(0);cls.temp.cleanup()
 
     def test_auth_and_csrf(self):
+        self.assertEqual(self.client.post('/api/swing/learned/run').status_code,403)
         self.assertEqual(self.client.post('/api/paper/settings',json={}).status_code,403)
         with TestClient(self.app.app) as anonymous:
+            self.assertEqual(anonymous.get('/api/swing/learned/status').status_code,401)
             self.assertEqual(anonymous.get('/api/paper/journal').status_code,401)
         with TestClient(self.app.app) as anonymous:
             self.assertEqual(anonymous.get('/api/pro/services').status_code,401)
         self.assertEqual(self.client.post('/api/pro/writer/save',json={'content':'test'}).status_code,403)
+    def test_swing_and_experiment_routes_require_auth_and_csrf(self):
+        with TestClient(self.app.app) as anonymous:
+            self.assertEqual(anonymous.get('/api/swing/status').status_code,401)
+            self.assertEqual(anonymous.get('/api/experiment/status').status_code,401)
+        self.assertEqual(self.client.post('/api/swing/lab',json={}).status_code,403)
+        self.assertEqual(self.client.post('/api/experiment/start',json={}).status_code,403)
+        self.assertEqual(self.client.post('/api/experiment/start',json={},headers=self.headers).status_code,400)
+        self.assertEqual(self.client.get('/swing.js').status_code,200)
+        self.assertTrue(any(a['name']=='Swing Trader' for a in self.client.get('/api/agents').json()))
+
     def test_private_paper_settings_do_not_return_credentials(self):
         self.assertEqual(self.client.get('/paper.js').status_code,200)
         data={'key':'mock-paper-key','secret':'mock-paper-secret','gmail_password':'mock-app-password','owner':'paper-owner@gmail.com'}

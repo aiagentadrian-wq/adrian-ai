@@ -422,6 +422,23 @@ async def chat(body:ChatIn,req:Request):
     if not provider: return {'answer':'No AI provider connected yet. Go to API Center and add an OpenAI or OpenRouter key.','model':'not connected'}
     history=recent_messages(agent['id']); remember(agent['id'],'user',body.message)
     learned=memory_context(body.message)
+    if agent['name']=='Swing Trader' or agent['name']=='Manager' and re.search(r'(?i)\bswing\b',body.message):
+        try:
+            async with swing_trading.APP.lock:
+                answer,usage=await swing_trading.APP.chat(body.message,provider,history,learned)
+        except (HTTPException,ValueError) as exc:
+            answer='Swing workflow did not complete: '+str(exc.detail if isinstance(exc,HTTPException) else exc);usage={}
+        remember(agent['id'],'assistant',answer);event(agent['name'],'swing response',body.message[:120])
+        return {'answer':answer,'model':provider['model'],'usage':usage}
+    if agent['name'] in ('Manager','Day Trader') and re.search(r'(?i)\b(experiment|machine learning|retrain|ml model)\b',body.message):
+        if re.search(r'(?i)\b(train|retrain|improve)\b',body.message):
+            try:
+                async with paper_experiment.APP.lock:await paper_experiment.APP.train()
+            except Exception as exc:paper_experiment.APP.note('requested training failed',str(type(exc).__name__))
+        evidence=paper_experiment.APP.summary()
+        result=await model_call(provider,[{'role':'system','content':trading_chat_bridge.system_prompt(body.message)+'\nThe supplied experiment is a separately authorized automatic stock-paper worker. It may submit actual paper broker orders within fixed limits without email YES. Explain actual recorded ML features, version comparisons, results and loss limits. Never claim real-money trades, profit guarantees, or actions absent from journal. When learning is blocked say why; a model score is not a calibrated profit probability.'}]+history+[{'role':'user','content':'REQUEST: '+body.message+'\nACTUAL EXPERIMENT STATE:\n'+json.dumps(evidence,default=str)[:95000]}])
+        answer=result['choices'][0]['message'].get('content') or '';remember(agent['id'],'assistant',answer)
+        return {'answer':answer,'model':provider['model'],'usage':result.get('usage',{})}
     if agent['name'] in ('Manager','Day Trader') and re.search(r'(?is)\b(?:email|send)\b.*\b(?:paper.*trade|trade.*proposal|paper.*proposal)\b',body.message) and not re.search(r'(?i)\b(?:do not send|don.t send|draft only|without sending)\b',body.message):
         try:
             async with paper_trading.APP.lock:output=await paper_trading.APP.propose(body.message)
@@ -440,6 +457,7 @@ async def chat(body:ChatIn,req:Request):
         elif agent['name']=='Day Trader':
             evidence=await trading_chat_bridge.research_context(body.message,db)
             evidence['paper_connection']=paper_trading.APP.capabilities()
+            evidence['automatic_paper_experiment']=paper_experiment.APP.summary()
             if trading_chat_bridge.daily_decision(body.message):
                 answer=trading_chat_bridge.briefing(evidence);usage={}
             else:
@@ -472,6 +490,7 @@ async def chat(body:ChatIn,req:Request):
     if market_question or trading_chat_bridge.trading_education.educational_question(body.message) and re.search(r"(?i)trading|tradingview|vwap|candlestick|paper account|day trader|risk math|course",body.message):
         evidence=await trading_chat_bridge.research_context(body.message,db)
         evidence['paper_connection']=paper_trading.APP.capabilities()
+        evidence['automatic_paper_experiment']=paper_experiment.APP.summary()
         market_messages=[{'role':'system','content':trading_chat_bridge.system_prompt(body.message)+'\nYou are ADRIAN.AI Manager presenting your Day Trader research.'}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}]
         if trading_chat_bridge.daily_decision(body.message):
             answer=trading_chat_bridge.briefing(evidence);market_result={}
@@ -529,9 +548,13 @@ async def chat(body:ChatIn,req:Request):
                         delegation_token='delegation:'+str(delegation_id)
                         dashboard_core.RUNNING[delegation_token]={'agent':target['name'],'task':'delegated analysis','started':now()}
                         try:
-                            if target['name']=='Day Trader':
+                            if target['name']=='Swing Trader':
+                                async with swing_trading.APP.lock:
+                                    specialist_result,_=await swing_trading.APP.chat(task[:12000],provider,[],memory_context(task))
+                            elif target['name']=='Day Trader':
                                 evidence=await trading_chat_bridge.research_context(task,db)
                                 evidence['paper_connection']=paper_trading.APP.capabilities()
+                                evidence['automatic_paper_experiment']=paper_experiment.APP.summary()
                                 sub=await model_call(provider,[{'role':'system','content':trading_chat_bridge.system_prompt(task)+'\nShared preferences:\n'+memory_context(task)},{'role':'user','content':'REQUEST: '+task[:12000]+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
                                 specialist_result=sub['choices'][0]['message'].get('content') or ''
                             elif target['name']=='Writer':
@@ -738,3 +761,11 @@ trading_guard.install(app,db,auth,csrf,now)
 
 import paper_trading
 paper_trading.install(app,db,CIPHER,auth,csrf,send_owner_email,event,model_call)
+
+import swing_trading
+swing_trading.install(app,db,paper_trading.APP,auth,csrf,event,model_call)
+import paper_experiment
+paper_experiment.install(app,db,paper_trading.APP,swing_trading.APP,auth,csrf,event)
+
+import learned_swing_bridge
+learned_swing_bridge.install(app,ROOT,paper_trading.APP,swing_trading.APP,paper_experiment.APP,auth,csrf,event)

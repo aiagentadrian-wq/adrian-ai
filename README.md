@@ -1,130 +1,78 @@
-# ADRIAN.AI — Professional Dashboard 2.0
+# ADRIAN.AI — Professional Dashboard and Learned Paper Trading
 
-A private, locally hosted assistant dashboard for coordinated research, job applications and authentic writing. This release includes the earlier grounded stock comparison and ATS résumé updates.
+A private local dashboard coordinating Manager, Day Trader, Swing Trader, Job Finder and Writer. This cumulative release contains the complete simplified site, ATS résumé workflows, shared memory, measured API status, the TradingView course library, broker-backed paper trading and unattended machine-learning workers.
 
-## What is included
+**All broker execution is Alpaca paper trading. No real-money trading endpoint exists.** Models can choose NO TRADE for the entire experiment. Profit is not guaranteed.
 
-| Page | What it does |
+## Complete capabilities
+
+Read [FEATURES.md](FEATURES.md) for every agent, page and workflow.
+
+| Area | Included |
 | --- | --- |
-| Overview | Shows the installed agents, their responsibilities, actual working/idle/disabled state, and latest recorded work. |
-| Manager | Coordinates registered specialists, retrieves shared preferences and historical results, searches the web through the connected OpenAI account, and reports actual tool outcomes. |
-| Trading Division | Market Terminal, searchable/paginated SEC company directory, compact candidate comparison and Ask Day Trader. Advanced research, model training, discovery and paper portfolio tools are collapsed. |
-| Job Finder | Saved opportunities, résumé packages, discovery matches needing verification, application progress, job board searches, résumé vault and email actions. Replaces the separate Application Desk navigation. |
-| Writer Studio | Assignment instructions, editable draft, voice review, persistent local saves and text download. Samples and corrections live in Settings → Writing voice. |
-| Reports & Email | Command briefing, activity records and the existing report sender. |
-| API Center | Measured access/response status for AI, market/news/economic/company/job feeds and SMTP. Shows checked times and failures rather than a decorative online indicator. |
-| Settings | Agent instructions, writing samples, reviewable memory, security and logout. |
+| Overview / Manager | Agent responsibilities, actual work state, specialist coordination, web research and shared preferences. |
+| Trading Division | Market Terminal, compact candidate comparison, Ask Day Trader, SEC directory and actual paper portfolio. |
+| Learned Swing Trader | yfinance OHLCV, 68 causal statistical features, learned BUY/HOLD/EXIT forecasts, official alpaca-py orders and scheduled monitoring. |
+| Paper experiment | Separate trained intraday model, chronological evaluation, model versions, guarded automatic paper orders and settled outcome journal. |
+| Strategy lab | Optional historical baseline/candidate comparisons, cost stress and version improvement data. |
+| Job Finder | Discovery, verification queue, ATS packages, résumé vault, application progress and configured email sender. |
+| Writer Studio | Assignment-aware drafts, authentic voice context, editable persistent saves and download. |
+| Reports & Email | Briefing, activity and broker-backed daily Manager/swing reports. |
+| API Center / Settings | Measured access/health, encrypted connection settings, writing samples, reviewable memory, security and logout. |
 
-### AI and shared memory
+## Learned swing framework
 
-- GPT-6 Astra was verified with the owner's existing OpenAI account during installation. Account access and billing remain provider-controlled. A fresh installation requires its own configured provider and model.
-- `ai_adapter.py` uses OpenAI Responses for GPT-5/GPT-6/reasoning models, including function calls and encrypted reasoning continuity; existing older/OpenRouter Chat Completions integrations are retained.
-- Manager delegation and a real Writer response were checked end to end. Agent coordination invokes actual registered specialists; it does not create new external capabilities.
-- Say **“Remember that …”** in agent chat to save a preference explicitly. Exact duplicates are avoided. Credential-like content is rejected. All agents can use shared memories; current instructions take priority.
-- Retrieval prioritizes relevant stored text and recent corrections. Memory is persistent database context, not retraining the language model. Review, disable, edit or delete it in Settings.
-- Historical specialist results are shared as historical context, never proof of current facts or newly completed actions.
+`autonomous_swing.py` is a complete modular headless daily script. It fetches completed historical OHLCV using yfinance, generates rolling features over 2–60 sessions, trains multi-output random forests for 1/2/3/5/10/20-session returns and derives entry/hold/exit decisions from forecasts, validation error and assumed costs. It has no fixed RSI/SMA buy trigger. Labels are purged across chronological split boundaries; candidate selection uses validation, followed by separate later-data replay and a frozen-candidate deployment refit.
 
-### Trading
+Model versions retain tests, feature importance, forecasts and before/after comparisons. Reused historical tests are labelled. Yahoo-adjusted history can be revised after corporate actions; causal features do not remove this data limitation. Historical diagnostics, simulation profits and actual broker fills are reported separately.
 
-- Compares configured watchlist/universe candidates rather than hard-coding Apple. AAPL appears only if its evidence earns its ranking.
-- Compact brief and detailed chat/email share the same grounded decision logic. The brief refreshes when the trading page first opens and caches results for five minutes.
-- Describes comparative historical momentum and volume, available news, conditional entry confirmation, illustrative stops/targets, invalidation and reasons to skip.
-- Missing, stale, delayed or unverified live evidence produces WAIT/NO TRADE. The current pipeline does not assert a verified live entry or execute broker orders.
-- Company directory pages expose every returned SEC entry. This is US SEC coverage, not every public/private company worldwide; directory inclusion does not verify current listing status.
-- Model Lab remains available for historical training/backtesting. A saved model is not a guarantee of future returns.
+`TradingClient(paper=True)` is invariant. Entries use SDK `MarketOrderRequest` with notional allocation; owned exits use `close_position`. Durable claims, deterministic entry IDs, fill/partial-fill reconciliation and unknown-submission blocking prevent blind retry. Failed model eligibility or stale/missing evidence blocks entries.
 
-### Jobs, applications and email
+The authorized experiment uses 0.25% risk per trade, 1% daily / 2% experiment loss checks, at most three positions and no leverage. For the learned swing policy, the **entire position notional** is capped at 0.25% equity—about $250 per symbol on a $100,000 paper account—because it does not assume a fixed protective-stop distance. The original seven-day deadline is shared with the intraday worker and preserved across restarts. Stock execution is regular-hours only; 24/7 crypto is not implemented.
 
-- Uses configured Adzuna, Arbeitnow, Lever, Greenhouse and optional public feeds. Strict eligibility filters and deduplication are retained.
-- Unconfirmed pay/hours/fit appear as discovery matches needing verification. Open the posting and paste the full description before preparing a package.
-- Application stages: saved, preparing, applied, interview, offer, closed. These are **user-recorded progress**, not automatic employer submissions.
-- Single-column ATS PDFs preserve supplied facts, readable text and ordering. Review drafts before approval.
-- Email test and approved-package actions use the existing local SMTP configuration. SMTP acceptance is distinguished from inbox delivery.
-- Next check times come from Windows Task Scheduler. If task access is unavailable or no ADRIAN tasks exist, the app says so. No schedule, next-email time or successful delivery is fabricated; this release does not create new scheduled tasks.
-- A manual discovery refresh checks feeds without sending email and limits refresh frequency to protect quota. Existing scheduled mailers retain their deduplication and authorization behavior.
+The app runs the learned policy ten minutes after exchange open and monitors every 30 seconds. Swing emails occur at open, session midpoint and five minutes after close, with early-close/holiday awareness; Manager daily reporting includes learned policy state. Workers share account-entry locking. Run only one account-entry installation/state.
 
-### Writing
+See [HEADLESS_SWING.md](HEADLESS_SWING.md), [SWING_TRADING.md](SWING_TRADING.md) and [PAPER_TRADING.md](PAPER_TRADING.md).
 
-Uses genuine samples and saved corrections, prioritizes assignment requirements, preserves facts, flags missing sources and reviews formulaic phrasing. Edits can now be saved to the local database and restored after a refresh. No detector score or detector pass rate is promised.
+## Installation
 
-### Connection status
+Use Python 3.12 or newer. Bind to localhost; keep passwords, databases and résumé records private.
 
-Configured is separate from verified. HTTP/API failures update status during normal requests; successful checks have timestamps and become stale after 15 minutes. Quota/credit errors, denied access and unreachable services are reported. API credit balances are not guessed. An authentication/model-list check is distinguished from a successful paid model invocation. SMTP checks authenticate without sending mail.
+For an existing configured app, stop its server and run the source-only upgrade from a downloaded release folder:
 
-## Install or upgrade
+```powershell
+python install_dashboard_upgrade.py --target "C:\path\to\existing\adrian-command-center"
+```
 
-Use Python 3.12 or newer. Keep the app bound to localhost unless you deliberately configure authenticated private remote access.
-
-### Existing installation
-
-1. Stop the server and back up `.env`, `command_center.db` and private résumé files. Preserve the encryption key; replacing it makes stored provider keys unreadable.
-2. Download this release branch. From the downloaded folder run:
-
-   ```powershell
-   python install_dashboard_upgrade.py --target "C:\path\to\existing\adrian-command-center"
-   ```
-
-   The installer backs up source and the database, copies an explicit source allowlist, and preserves `.env`, database records and private files. It does not change the connected model or scheduled tasks.
-3. In the existing app folder install dependencies and restart:
-
-   ```powershell
-   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-   .\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
-   ```
-
-4. Sign in. Open API Center → Check connections. If choosing a new model, use one your account permits; the installed owner's model was separately smoke-tested before switching.
-
-### Fresh installation
+The allowlisted installer backs up source/database and preserves `.env`, private records and encryption keys. In the existing app environment install `requirements.txt` and restart. A fresh installation:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe generate_secrets.py
-.\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe start_server.py
 ```
 
-Keep the generated password private. Configure an AI provider in API Center. Add optional feed/SMTP settings from `.env.example` locally. Never commit real credentials, databases, résumés, logs or screenshots of private data.
+Sign in and configure your AI provider in API Center. The owner's existing connected flagship model was smoke-tested; fresh installs require their own provider/model access. Configure Alpaca **paper** keys and optional Gmail/SMTP settings in the private connection controls. Standalone swing execution instead reads `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` with `os.getenv`; never put real keys in source or GitHub.
 
-## Validation
+## Unattended operation
 
-```powershell
-python -m unittest test_dashboard_v2
-python -m unittest test_trading_upgrade test_trading_monitor
+`install_headless_task.ps1 -PythonPath <absolute pythonw.exe path>` registers the local server at Windows sign-in and 09:20 daily, as the current limited user. Optional `-DependencyPath` supports a prepared library directory. The installer is explicit; merely downloading the repository does not install tasks. The app's calendar determines market runs and email times. `headless_swing_cron.txt` is a standalone daily scheduling example.
+
+The PC must remain on, awake, signed in and connected for this local setup. API or broker failures are recorded; acceptance is not a fill, and SMTP acceptance is not proof of inbox delivery. Software monitoring cannot guarantee an exit during an outage or gap.
+
+## AI, writing and memory
+
+OpenAI Responses/tool support and configured alternate providers are retained. Manager coordination invokes actual registered tools; it does not grant every capability of ChatGPT. Say “Remember that…” to save relevant preferences; stored context can be reviewed or deleted in Settings. This retrieval does not retrain the provider's language model. The trading forests are genuine separately trained ML models.
+
+Writer uses genuine samples, corrections and assignment requirements. No AI-detector pass rate is guaranteed. Job packages preserve supplied facts and require review; application progress is user-recorded, not automatic employer submission. API Center distinguishes configured, verified, stale, limited, denied and unreachable status from actual requests, including yfinance historical access. Credit balances are not guessed.
+
+## Verification
+
+```text
+python -m unittest test_trading_education test_trading_upgrade test_paper_trading test_trading_guard test_dashboard_v2 test_trading_monitor test_swing_trading test_trading_ml test_paper_experiment test_autonomous_swing
 ```
 
-Eight isolated dashboard tests plus nine trading tests passed during development. Dashboard tests use a temporary synthetic database and credentials. Live checks covered flagship model invocation, Manager → Writer tool delegation, configured source access and SMTP authentication. Browser checks cover the simplified pages and company pagination. No new email was sent for this dashboard release.
+The cumulative suite exercises causal features, purged labels, real model fitting, official SDK request construction, paper-only bounds, no duplicate submissions, partial-fill ownership, loss/deadline controls, authentication and the existing dashboard/job/writing workflows. Live verification records are deployment-specific; tests do not establish future profit.
 
-Read `RELEASE_NOTES.md` for the release scope, verification and known limits. Earlier setup notes and `TRADING_CHAT_UPGRADE.md` remain available as historical documentation; this README describes the current dashboard.
-
-## Main files
-
-`app.py` — authenticated application, agent/tools, conversation and writing workflows.
-
-`dashboard_core.py` — professional dashboard endpoints, measured service health, working status, shared retrieval, schedule reads, application stages and persistent edits.
-
-`ai_adapter.py` — current OpenAI Responses/tool compatibility.
-
-`static/index.html`, `static/dashboard.js`, `static/dashboard.css` — existing tools plus the simplified responsive interface.
-
-`trading_*` — sourced research, screening, company directory, paper records and model lab.
-
-`job_v7*`, `job_manager_bridge.py`, `resume_test_email.py` — discovery, deduplication, reviewed résumé packages and email.
-
-`adrian_intelligence.py` — existing job preference/recommendation intelligence.
-
-`test_dashboard_v2.py`, `test_trading_upgrade.py`, `test_trading_monitor.py` — regression checks.
-
-
-## Trading validation follow-up
-
-See `TRADING_VALIDATION.md` for completed-bar checks, boundary purging, paper risk limits, chronological replay, actual losing historical results and the job-worker dependency fix. Run `python -m unittest test_trading_guard` for the ten added guard tests. The cumulative automated count is 27.
-
-
-## Alpaca paper trading and Gmail approvals
-
-Adds encrypted private connection settings, a broker-backed paper account view, shared Alpaca IEX US-stock bars, expiring authenticated Gmail reply approvals, limit-entry bracket orders with deterministic risk checks, unique order IDs and uncertain-submission reconciliation. Manager reads actual paper account state and includes the journal in reports. Opt-in daily proposal check: 09:45 Toronto weekdays; daily paper report: 17:00 Toronto. No live trading endpoint exists. Account-specific checks still require the owner’s paper API keys and Gmail app password. See [setup and limitations](PAPER_TRADING.md). Regression suite: 44 checks passed including the previous dashboard/trading suites.
-
-
-## Trading course knowledge
-
-Day Trader and Manager trading answers retrieve relevant lessons from the complete 37-page TradingView course. The versioned library includes all lesson text, page references and 16 official source links. Core risk and evidence rules are always present; teaching questions receive explanatory answers instead of the fixed daily watch briefing. This is retrieval, not model retraining. Course paper defaults and ORB examples do not modify broker settings, approval requirements or the existing execution strategy.
+Read [RELEASE_NOTES.md](RELEASE_NOTES.md) for this release's verification and limitations. `.env.example` contains placeholders only. Never commit credentials, private models/databases, résumés, logs or local screenshots.

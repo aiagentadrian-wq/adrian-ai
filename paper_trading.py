@@ -136,6 +136,9 @@ class Engine:
     async def propose(self,query='Compare candidates'):
         import trading_chat_bridge as bridge
         import trading_guard
+        import paper_experiment
+        if paper_experiment.APP and paper_experiment.APP.config().get('enabled'):
+            return {'status':'no_trade','reason':'The authorized automatic paper experiment is running. Separate email entry proposals are paused to avoid conflicting orders.'}
         if not self.config().get('approval_enabled'):raise HTTPException(400,'Enable Gmail approval monitoring first.')
         if 'last_uid' not in self.config():await self.poll()
         evidence=await bridge.research(query,self.db)
@@ -258,9 +261,11 @@ class Engine:
     async def report(self):
         try:
             a=await self.broker('/v2/account');p=await self.broker('/v2/positions');o=await self.broker('/v2/orders?status=all&limit=20')
-            text='Manager daily paper-trading report\nPAPER ONLY — not real money.\n'+json.dumps({'equity':a['equity'],'cash':a['cash'],'positions':[{'symbol':x['symbol'],'qty':x['qty'],'unrealized_pl':x['unrealized_pl']} for x in p],'orders':[{'symbol':x['symbol'],'status':x['status'],'filled_qty':x['filled_qty'],'filled_avg_price':x.get('filled_avg_price')} for x in o],'approval_journal':self.summary()},indent=2)
+            import swing_trading,paper_experiment,learned_swing_bridge
+            shared={'learned_swing':learned_swing_bridge.APP.summary() if learned_swing_bridge.APP else None,'swing':(await swing_trading.APP.status()),'machine_learning_experiment':paper_experiment.APP.summary()}
+            text='Manager daily paper-trading report\nPAPER ONLY — not real money.\n'+json.dumps({'equity':a['equity'],'cash':a['cash'],'positions':[{'symbol':x['symbol'],'qty':x['qty'],'unrealized_pl':x['unrealized_pl']} for x in p],'orders':[{'symbol':x['symbol'],'status':x['status'],'filled_qty':x['filled_qty'],'filled_avg_price':x.get('filled_avg_price')} for x in o],'approval_journal':self.summary(),'shared_trading_work':shared},indent=2)
         except Exception:text='Manager daily paper-trading report\nBroker unavailable; no balances or fills confirmed.\n'+json.dumps(self.summary(),indent=2)
-        result=await asyncio.to_thread(self.mail,'ADRIAN Manager — daily paper trading',text[:12000])
+        result=await asyncio.to_thread(self.mail,'ADRIAN Manager — daily paper trading',text[:45000])
         self.event('Manager','daily paper report',result['status']);return result
     async def loop(self):
         while True:

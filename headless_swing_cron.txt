@@ -1,0 +1,9 @@
+# Standalone alternative: configure APCA_API_KEY_ID/APCA_API_SECRET_KEY privately
+# in the scheduler environment, SWING_PAPER_ENABLED=1, and SWING_DEADLINE explicitly.
+# Set a fixed absolute --state path. Use one account entry scheduler at a time.
+# CRON_TZ requires cron implementation support; otherwise use equivalent UTC times
+# and account for daylight saving. The broker calendar/clock blocks holidays/closed sessions.
+CRON_TZ=America/Toronto
+40 9 * * 1-5 /absolute/path/to/venv/bin/python /absolute/path/to/autonomous_swing.py --state /absolute/path/to/private/autonomous_swing.db >> /absolute/path/to/private/swing.log 2>&1
+# The integrated app additionally monitors every 30 seconds while its server runs.
+# Run the app as a supervised user service to retain monitoring and session emails.
