@@ -390,9 +390,6 @@ class Runner:
         self.reconcile()
         if self.store.unresolved():return self.store.summary()
         if self.config.daily_exploration:
-            with self.store.connect() as c:today_entries=[r for r in c.execute("SELECT at,status FROM orders WHERE side='buy'") if datetime.fromisoformat(r['at']).astimezone(LOCAL).date().isoformat()==day and r['status'] not in ('rejected','skipped')]
-            if today_entries:
-                self.store.put('daily_trade_status',{'day':day,'status':'Paper entry already attempted today; no duplicate daily entry.'});return self.store.summary()
             # Research WAIT stays visible. Paper exploration is a separate,
             # explicitly authorized learning action, not a profitable signal.
             attempts=[d.copy()|{'model_action':d['action'],'exploration':d['action']!='BUY','action':'BUY','reason':d['reason'] if d['action']=='BUY' else 'Owner-authorized daily paper exploration despite model WAIT; selected by learned relative forecast. No positive edge claimed.'} for d in decisions if d['symbol'] not in owned]

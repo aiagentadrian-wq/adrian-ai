@@ -112,6 +112,9 @@ class HeadlessExecutionTests(unittest.TestCase):
         order=self.broker.pending[0];order.update(status='filled',filled_qty='2.5',filled_avg_price='100')
         self.broker.held=[{'symbol':order['symbol'],'qty':'2.5','market_value':'250'}];self.broker.pending=[order]
         self.runner.run();self.assertEqual(self.broker.closes,[])
+        self.assertEqual(len(self.broker.buys),2)
+        self.assertNotEqual(self.broker.buys[0]['symbol'],self.broker.buys[1]['symbol'])
+        self.runner.run();self.assertEqual(len(self.broker.buys),2)
     def test_daily_exploration_never_bypasses_stale_quote(self):
         self.runner.config.daily_exploration=True
         self.broker.quote=lambda symbol:{'timestamp':(NOW-timedelta(minutes=5)).isoformat(),'bid_price':100,'ask_price':100.01}

@@ -67,12 +67,11 @@ class Engine:
                 self.store.put('last_scheduled_day',today)
                 try:await self.run(False)
                 except HTTPException:pass
-            elif self.store.get('daily_exploration',False) and due<=now<end-timedelta(minutes=10):
-                last=self.store.get('last_run');status=self.store.get('daily_trade_status') or {}
-                if status.get('day')!=today or status.get('status','').startswith('No paper entry'):
-                    if not last or (now-datetime.fromisoformat(last)).total_seconds()>=300:
-                        try:await self.run(False)
-                        except HTTPException:pass
+            elif self.store.get('daily_exploration',False) and start<=now<end:
+                last=self.store.get('last_run')
+                if not last or (now-datetime.fromisoformat(last)).total_seconds()>=300:
+                    try:await self.run(False)
+                    except HTTPException:pass
         # Train newly completed daily history before the next open if started
         # outside the market. No market order is sent by train-only execution.
         if not self.store.model() and self.store.get('initial_training_attempt')!=today:
@@ -117,3 +116,4 @@ def install(app,root,paper,swing,experiment,auth,csrf,event):
             engine.task.cancel()
             try:await engine.task
             except asyncio.CancelledError:pass
+

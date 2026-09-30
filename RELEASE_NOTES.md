@@ -29,3 +29,6 @@ The minimum five historical trades gate has been removed. Separately authorized 
 
 
 Broker-time freshness checks use the official paper SDK clock response, verified against its HTTPS Date header, cache age and request latency. Monotonic elapsed time preserves the 90-second quote limit even when the PC clock is slightly ahead. Cached responses, disagreeing timestamps, requests over five seconds and clock differences over five minutes fail closed. The follow-up safety suite passes 109 tests. Actual paper submission and subsequent broker fill reconciliation were verified.
+
+
+Continuous paper opportunities: the daily one-entry cap has been removed. During the scheduled market window, the worker reevaluates every five minutes even after a successful entry. It can submit one new candidate per evaluation, up to the shared three-position cap, subject to existing cash, loss, freshness and spread checks. Unresolved orders block new entries; the same symbol and daily dataset cannot generate duplicate purchases. The learned forecasts still update from completed daily bars, not every five minutes.
