@@ -270,7 +270,7 @@ def remove_provider(pid:int,req:Request):
 class ChatIn(BaseModel): message:str=Field(min_length=1,max_length=12000); agent_id:int=1
 async def model_call(provider, messages, tools=None, model_override=None):
     key=CIPHER.decrypt(provider['secret']).decode()
-    payload={'model':model_override or provider['model'],'messages':messages,'max_tokens':1400}
+    payload={'model':model_override or provider['model'],'messages':messages,'max_tokens':8192 if model_override=='adrian-writer' else 1400}
     if tools: payload['tools']=tools; payload['tool_choice']='auto'
     try:
         async with httpx.AsyncClient(timeout=60) as client:
