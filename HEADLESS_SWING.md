@@ -31,3 +31,10 @@ python autonomous_swing.py --status --state /absolute/private/path/autonomous_sw
 ```
 
 `headless_swing_cron.txt` provides a daily cron example. Do not run a separate standalone account-entry scheduler alongside the integrated app worker on another state database. The integrated app provides the more frequent monitoring and open/midday/close emails requested by the owner. No human approval is required for each authorized paper order, but unresolved broker/API failures are surfaced rather than bypassed.
+
+## Daily-testing follow-up
+
+The minimum five historical trades gate has been removed. Separately authorized daily paper exploration can test a relative learned choice even when its recommendation is WAIT, while all hard risk/account/fresh-data limits remain. This is forward simulated learning, not proof of profitability or a guarantee of a fill every day. The learned bot supports 12 configured symbols; the lab defaults to that full comparison list. Job Finder now has an integrated daily email worker and sends an honest no-new-matches/source-failure update when appropriate, instead of silently skipping email.
+
+
+Broker-time freshness checks use the official paper SDK clock response, verified against its HTTPS Date header, cache age and request latency. Monotonic elapsed time preserves the 90-second quote limit even when the PC clock is slightly ahead. Cached responses, disagreeing timestamps, requests over five seconds and clock differences over five minutes fail closed. The follow-up safety suite passes 109 tests. Actual paper submission and subsequent broker fill reconciliation were verified.

@@ -13,7 +13,7 @@ import trading_education
 import swing_lab
 
 LOCAL=ZoneInfo('America/Toronto');UTC=timezone.utc;APP=None
-DEFAULTS={'enabled':False,'universe':['SPY','QQQ','MSFT','NVDA','AMD','AAPL','AMZN','META'],'risk_percent':.25}
+DEFAULTS={'enabled':False,'universe':['SPY','QQQ','MSFT','NVDA','AMD','AAPL','AMZN','META','GOOGL','TSLA','AVGO','JPM'],'risk_percent':.25}
 def utc():return datetime.now(UTC)
 def stamp():return utc().isoformat()
 def session_times(row):
@@ -55,7 +55,7 @@ class Settings(BaseModel):
     universe:list[str]=Field(default_factory=lambda:list(DEFAULTS['universe']),min_length=1,max_length=12)
     risk_percent:float=Field(default=.25,gt=0,le=.5)
 class LabRequest(BaseModel):
-    symbols:list[str]=Field(default_factory=lambda:['SPY','QQQ','MSFT'],min_length=1,max_length=6)
+    symbols:list[str]=Field(default_factory=lambda:['SPY','QQQ','MSFT'],min_length=1,max_length=12)
     improve:bool=False
     parameters:dict=Field(default_factory=dict)
 
@@ -190,8 +190,8 @@ class Engine:
                 async with self.paper.lock:result=await learned.run(True)
             evidence=json.dumps(result,default=str)
         elif re.search(r'(?i)\b(test|backtest|improve|optimi[sz]e)\b',message) and re.search(r'(?i)\b(strateg|rules|system)\w*',message):
-            names=re.findall(r'\$([A-Z]{1,5})\b',message) or self.config()['universe'][:3]
-            result=await self.lab(LabRequest(symbols=names[:6],improve=bool(re.search(r'(?i)improve|optimi[sz]e',message))))
+            names=re.findall(r'\$([A-Z]{1,5})\b',message) or self.config()['universe'][:12]
+            result=await self.lab(LabRequest(symbols=names[:12],improve=bool(re.search(r'(?i)improve|optimi[sz]e',message))))
             evidence=json.dumps(result,default=str)
         elif trading_education.educational_question(message) and not re.search(r'(?i)today|current|now',message):evidence='Educational question only; no current market lookup requested.'
         else:result=await self.scan('chat');evidence=json.dumps(result,default=str)

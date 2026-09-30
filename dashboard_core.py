@@ -225,7 +225,9 @@ def install(app, root, db, auth, csrf, now, cipher):
         global SCHEDULE_CACHE
         if time.time()-SCHEDULE_CACHE[0]>300:
             SCHEDULE_CACHE=(time.time(),await asyncio.to_thread(schedule))
-        return SCHEDULE_CACHE[1]
+        import job_daily
+        value=SCHEDULE_CACHE[1] or {'available':False,'tasks':[],'note':'Windows task information unavailable.'}
+        return value|{'job_daily':job_daily.APP.summary() if job_daily.APP else None}
 
     brief_cache={'time':0,'data':None}
     brief_lock=asyncio.Lock()

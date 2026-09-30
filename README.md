@@ -76,3 +76,9 @@ python -m unittest test_trading_education test_trading_upgrade test_paper_tradin
 The cumulative suite exercises causal features, purged labels, real model fitting, official SDK request construction, paper-only bounds, no duplicate submissions, partial-fill ownership, loss/deadline controls, authentication and the existing dashboard/job/writing workflows. Live verification records are deployment-specific; tests do not establish future profit.
 
 Read [RELEASE_NOTES.md](RELEASE_NOTES.md) for this release's verification and limitations. `.env.example` contains placeholders only. Never commit credentials, private models/databases, résumés, logs or local screenshots.
+
+## Daily paper testing and Job Finder updates
+
+The owner can explicitly enable daily paper exploration to gather forward outcomes even when the model says WAIT. The highest relative forecast is tested with a small allocation; no positive edge is claimed. One new learned paper entry per market day is the target, subject to unchanged cash, loss, position and fresh-quote constraints. No minimum historical closed-trade count is required. Daily risk/exit checks remain active. The learned comparison supports up to 12 configured symbols; the optional strategy lab uses the same list by default.
+
+Job Finder has an integrated durable daily email worker, default 09:00 Toronto when enabled, with same-day catch-up after server startup. It emails new opportunities or an explicit no-new-results/incomplete-source update. Daily claims and accepted-email history prevent duplicate batches; uncertain SMTP handoffs are not blindly retried. The Job Finder page shows its actual next due time and last outcome.

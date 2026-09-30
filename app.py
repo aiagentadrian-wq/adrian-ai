@@ -769,3 +769,6 @@ paper_experiment.install(app,db,paper_trading.APP,swing_trading.APP,auth,csrf,ev
 
 import learned_swing_bridge
 learned_swing_bridge.install(app,ROOT,paper_trading.APP,swing_trading.APP,paper_experiment.APP,auth,csrf,event)
+
+import job_daily
+job_daily.install(app,db,auth,csrf,event,now)

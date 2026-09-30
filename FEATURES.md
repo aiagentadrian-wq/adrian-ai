@@ -84,3 +84,7 @@ This describes the cumulative professional dashboard release. Connection-depende
 - Private credentials, databases, models, résumé files, logs and local screenshots excluded from the release source.
 
 See README.md, HEADLESS_SWING.md, SWING_TRADING.md and PAPER_TRADING.md for setup, scheduling, risk and service limitations.
+
+## Daily-testing follow-up
+
+The minimum five historical trades gate has been removed. Separately authorized daily paper exploration can test a relative learned choice even when its recommendation is WAIT, while all hard risk/account/fresh-data limits remain. This is forward simulated learning, not proof of profitability or a guarantee of a fill every day. The learned bot supports 12 configured symbols; the lab defaults to that full comparison list. Job Finder now has an integrated daily email worker and sends an honest no-new-matches/source-failure update when appropriate, instead of silently skipping email.

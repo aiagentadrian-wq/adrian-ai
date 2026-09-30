@@ -9,7 +9,8 @@ import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime,timedelta,timezone
-import hashlib,json,logging,math,os,secrets,sqlite3,sys
+import hashlib,json,logging,math,os,secrets,sqlite3,sys,time
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import numpy as np
@@ -38,6 +39,7 @@ class Config:
     max_positions:int=3
     cost_bps_each_side:float=20
     enabled:bool=False
+    daily_exploration:bool=False
     deadline:str=''
     def __post_init__(self):
         import re
@@ -81,7 +83,7 @@ class Store:
             holdings=[dict(r) for r in c.execute('SELECT * FROM holdings')]
         for r in orders:r['plan']=json.loads(r.pop('payload'))
         model=self.model()
-        return {'engine':'Learned daily swing policy / yfinance / alpaca-py PAPER','enabled':self.get('enabled',False),'deadline':self.get('deadline'),'last_run':self.get('last_run'),'last_error':self.get('last_error'),'model':{'id':model['id'],'at':model['at'],'source_date':model['source_date'],'report':model['report']} if model else None,'orders':orders,'holdings':holdings,'notes':notes,'last_decisions':self.get('last_decisions',[]),
+        return {'engine':'Learned daily swing policy / yfinance / alpaca-py PAPER','enabled':self.get('enabled',False),'daily_exploration':self.get('daily_exploration',False),'daily_trade_status':self.get('daily_trade_status'),'deadline':self.get('deadline'),'last_run':self.get('last_run'),'last_error':self.get('last_error'),'model':{'id':model['id'],'at':model['at'],'source_date':model['source_date'],'report':model['report']} if model else None,'orders':orders,'holdings':holdings,'notes':notes,'last_decisions':self.get('last_decisions',[]),
                 'limits':{'risk_per_new_position_percent':.25,'max_positions':3,'daily_loss_limit_percent':1,'experiment_loss_limit_percent':2,'allocation_note':'Notional is capped at 0.25% of equity. For unlevered long stock this bounds capital at risk even if the stock becomes worthless; no fixed technical stop is assumed.'},
                 'note':'Learned entries/exits are forecasts, not guaranteed income. No model edits its risk controls or executable code. PC/server/network must remain available.'}
 
@@ -192,7 +194,7 @@ def fit_policy(datasets,cost_bps=20):
     for period,(a,b) in periods.items():results[period]={symbol:replay_policy(prices,x,selected,errors,a,b,cost_bps) for symbol,(prices,x) in prepared.items()}
     summary={period:{'mean_independent_return_pct':round(sum(r['net_return_pct'] for r in values.values())/len(values),5),'worst_drawdown_pct':min(r['max_mark_to_market_drawdown_pct'] for r in values.values()),'trade_count':sum(r['trade_count'] for r in values.values())} for period,values in results.items()}
     test_predictions=np.array([predict(selected,r[0]) for r in test]);test_errors=np.mean(abs(test_predictions-np.array([r[1] for r in test])),axis=0)
-    eligible=summary['validation']['mean_independent_return_pct']>0 and summary['test']['mean_independent_return_pct']>0 and summary['test']['trade_count']>=5
+    eligible=summary['validation']['mean_independent_return_pct']>0 and summary['test']['mean_independent_return_pct']>0
     report={'algorithm':'RandomForestRegressor learns six future-return horizons from 68 rolling OHLCV statistical features; entry/hold/exit follow learned forecasts, not RSI/SMA trade thresholds.',
             'feature_count':len(feature_names),'feature_names':feature_names,'horizons':list(HORIZONS),'chosen_parameters':choice['parameters'],'candidate_models':[{k:v for k,v in t.items() if k!='model'} for t in trials],
             'validation_error_by_horizon':errors,'test_error_by_horizon':test_errors.tolist(),'training_rows':len(training),'validation_rows':len(validation),'test_rows':len(test),
@@ -207,6 +209,15 @@ def fit_policy(datasets,cost_bps=20):
     estimator.fit(pd.DataFrame([r[0] for r in mature],columns=feature_names),np.array([r[1] for r in mature]))
     return forest_json(estimator),report
 
+def validate_broker_clock(timestamp,http_date,cache_age,elapsed):
+    source=datetime.fromisoformat(str(timestamp).replace('Z','+00:00'))
+    server=parsedate_to_datetime(http_date)
+    if source.tzinfo is None or server.tzinfo is None or float(cache_age)!=0 or not 0<=elapsed<=5:
+        raise ValueError('Untrusted broker clock response')
+    if abs((source-server).total_seconds())>3 or abs((utc()-source).total_seconds())>300:
+        raise ValueError('Broker clock timestamps disagree or local skew exceeds five minutes')
+    return source
+
 class AlpacaBroker:
     """SDK adapter with paper=True as an invariant, not a user-selectable endpoint."""
     def __init__(self,key=None,secret=None):
@@ -215,6 +226,8 @@ class AlpacaBroker:
         secret=secret or os.getenv('APCA_API_SECRET_KEY') or os.getenv('ALPACA_SECRET_KEY')
         if not key or not secret:raise ValueError('Paper credentials missing: APCA_API_KEY_ID and APCA_API_SECRET_KEY')
         self.client=TradingClient(api_key=key,secret_key=secret,paper=True)
+        self._clock_http=None
+        self.client._session.hooks.setdefault('response',[]).append(self._observe_clock_response)
         from alpaca.data.historical import StockHistoricalDataClient
         self.data_client=StockHistoricalDataClient(api_key=key,secret_key=secret)
     def call(self,name,*args,**kwargs):
@@ -229,7 +242,21 @@ class AlpacaBroker:
             LOG.error('Alpaca %s failed (%s)',name,type(exc).__name__)
             raise RuntimeError('Alpaca paper '+name+' failed; state not assumed complete') from exc
     def account(self):return serial(self.call('get_account'))
-    def clock(self):return serial(self.call('get_clock'))
+    def _observe_clock_response(self,response,*args,**kwargs):
+        if response.url.split('?')[0]=='https://paper-api.alpaca.markets/v2/clock':
+            self._clock_http=(response.headers.get('Date'),response.headers.get('Age','0'),response.elapsed.total_seconds(),time.monotonic())
+    def clock(self):
+        self._clock_http=None
+        result=serial(self.call('get_clock'))
+        if not self._clock_http:raise RuntimeError('Broker clock HTTP timestamp unavailable')
+        date,age,elapsed,received=self._clock_http
+        self._trusted_clock=validate_broker_clock(result['timestamp'],date,age,elapsed)
+        self._trusted_received=received
+        return result
+    def quote_now(self):
+        elapsed=time.monotonic()-self._trusted_received
+        if not 0<=elapsed<=60:raise RuntimeError('Broker clock calibration expired')
+        return self._trusted_clock+timedelta(seconds=elapsed)
     def positions(self):return [serial(x) for x in self.call('get_all_positions')]
     def orders(self):
         from alpaca.trading.requests import GetOrdersRequest
@@ -247,9 +274,11 @@ class AlpacaBroker:
     def close(self,symbol):return serial(self.call('close_position',symbol))
     def cancel(self,id):self.call('cancel_order_by_id',id)
     def quote(self,symbol):
+        return self.quotes([symbol])[symbol]
+    def quotes(self,symbols):
         from alpaca.data.requests import StockLatestQuoteRequest
         from alpaca.data.enums import DataFeed
-        try:return serial(self.data_client.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=symbol,feed=DataFeed.IEX))[symbol])
+        try:return {symbol:serial(value) for symbol,value in self.data_client.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=list(symbols),feed=DataFeed.IEX)).items()}
         except Exception as exc:raise RuntimeError('Fresh Alpaca IEX quote unavailable') from exc
 
 class Runner:
@@ -332,13 +361,14 @@ class Runner:
         day=now.astimezone(LOCAL).date().isoformat()
         if self.store.get('day')!=day:self.store.put('day',day);self.store.put('day_equity',float(account['equity']))
         self.store.put('enabled',self.config.enabled)
+        self.store.put('daily_exploration',self.config.daily_exploration)
         deadline=self.store.get('deadline');halt=now>=datetime.fromisoformat(deadline) or float(account['equity'])<=self.store.get('start_equity')*(1-self.config.week_loss_fraction) or float(account['equity'])<=self.store.get('day_equity')*(1-self.config.daily_loss_fraction)
         if self.config.enabled and halt and clock['is_open']:
             with self.store.connect() as c:owned=[r['symbol'] for r in c.execute('SELECT symbol FROM holdings')]
             for symbol in owned:self.exit(symbol,'Risk/experiment deadline exit',positions,opens)
             self.store.note('entries halted',{'reason':'Deadline or account loss limit','equity':account['equity']});return self.store.summary()
         expected=self.expected_session(now);version=self.store.model();datasets=None
-        if not version or version['source_date']!=expected:datasets=self.learn();version=self.store.model()
+        if not version or version['source_date']!=expected or set(version['report'].get('evaluations',{}).get('test',self.config.symbols))!=set(self.config.symbols):datasets=self.learn();version=self.store.model()
         if train_only:return self.store.summary()
         if datasets is None:datasets={s:self.loader(s,day) for s in self.config.symbols}
         if any(str(f.index[-1].date())!=expected for f in datasets.values()):raise ValueError('Stale Yahoo data; no learned decision or order permitted')
@@ -347,6 +377,10 @@ class Runner:
         for symbol,prices in datasets.items():
             x=statistical_features(prices).iloc[-1];d=decision(predict(model,x.to_numpy()),errors,self.config.cost_bps_each_side,symbol in owned)
             d.update(symbol=symbol,model_version=version['id'],as_of=expected)
+            if d['action']=='EXIT' and self.config.daily_exploration:
+                with self.store.connect() as c:entry=c.execute('SELECT o.at,o.payload FROM holdings h JOIN orders o ON o.client_id=h.entry_client WHERE h.symbol=?',(symbol,)).fetchone()
+                if entry and json.loads(entry['payload']).get('exploration') and datetime.fromisoformat(entry['at']).astimezone(LOCAL).date().isoformat()==day:
+                    d['action']='HOLD';d['reason']='Paper learning position: evaluate after a new completed daily session; loss/deadline controls remain active.'
             if d['action']=='BUY' and not report['paper_eligible']:d['action']='WAIT';d['reason']='Learned policy failed later-period eligibility checks.'
             decisions.append(d)
         self.store.put('last_decisions',decisions)
@@ -355,22 +389,40 @@ class Runner:
             if d['action']=='EXIT':self.exit(d['symbol'],d['reason'],positions,opens)
         self.reconcile()
         if self.store.unresolved():return self.store.summary()
-        for d in sorted(decisions,key=lambda r:r['selected']['score_per_session'],reverse=True):
+        if self.config.daily_exploration:
+            with self.store.connect() as c:today_entries=[r for r in c.execute("SELECT at,status FROM orders WHERE side='buy'") if datetime.fromisoformat(r['at']).astimezone(LOCAL).date().isoformat()==day and r['status'] not in ('rejected','skipped')]
+            if today_entries:
+                self.store.put('daily_trade_status',{'day':day,'status':'Paper entry already attempted today; no duplicate daily entry.'});return self.store.summary()
+            # Research WAIT stays visible. Paper exploration is a separate,
+            # explicitly authorized learning action, not a profitable signal.
+            attempts=[d.copy()|{'model_action':d['action'],'exploration':d['action']!='BUY','action':'BUY','reason':d['reason'] if d['action']=='BUY' else 'Owner-authorized daily paper exploration despite model WAIT; selected by learned relative forecast. No positive edge claimed.'} for d in decisions if d['symbol'] not in owned]
+        else:attempts=decisions
+        quotes=self.broker.quotes([d['symbol'] for d in attempts]) if hasattr(self.broker,'quotes') and attempts else None
+        blocked=[];submitted=False
+        for d in sorted(attempts,key=lambda r:r['selected']['score_per_session'],reverse=True):
             if d['action']!='BUY':continue
             account=self.broker.account();positions=self.broker.positions();opens=self.broker.orders();clock=self.broker.clock()
             occupied={p['symbol'] for p in positions+opens}
-            if not clock['is_open'] or d['symbol'] in occupied or len(occupied)>=self.config.max_positions:continue
+            if not clock['is_open'] or d['symbol'] in occupied or len(occupied)>=self.config.max_positions:
+                blocked.append({'symbol':d['symbol'],'reason':'Market closed, symbol occupied, or position cap reached'});continue
             asset=self.broker.asset(d['symbol'])
-            if not asset.get('tradable') or not asset.get('fractionable') or asset.get('status')!='active':continue
-            quote=self.broker.quote(d['symbol']);age=(utc()-datetime.fromisoformat(quote['timestamp'].replace('Z','+00:00'))).total_seconds()
+            if not asset.get('tradable') or not asset.get('fractionable') or asset.get('status')!='active':
+                blocked.append({'symbol':d['symbol'],'reason':'Asset unavailable for fractional paper orders'});continue
+            quote=quotes.get(d['symbol']) if quotes is not None else self.broker.quote(d['symbol'])
+            if not quote:
+                blocked.append({'symbol':d['symbol'],'reason':'Broker returned no quote'});continue
+            quote_now=self.broker.quote_now() if hasattr(self.broker,'quote_now') else utc()
+            age=(quote_now-datetime.fromisoformat(quote['timestamp'].replace('Z','+00:00'))).total_seconds()
             bid,ask=float(quote['bid_price']),float(quote['ask_price'])
-            if not 0<=age<=90 or not 0<bid<=ask or (ask-bid)/ask>.003:continue
+            if not 0<=age<=90 or not 0<bid<=ask or (ask-bid)/ask>.003:
+                blocked.append({'symbol':d['symbol'],'reason':'Quote freshness / spread check','quote_age_seconds':round(age,1),'spread_pct':round((ask-bid)/ask*100,3) if ask>0 else None});continue
             equity=float(account['equity']);cash=float(account['cash']);pending=sum(float(o.get('notional') or 0) for o in opens if o.get('side')=='buy')
             existing_risk=sum(float(p.get('market_value') or 0) for p in positions)+pending
             daily_remaining=self.store.get('day_equity')*self.config.daily_loss_fraction-max(0,self.store.get('day_equity')-equity)-existing_risk
             week_remaining=self.store.get('start_equity')*self.config.week_loss_fraction-max(0,self.store.get('start_equity')-equity)-existing_risk
             notional=round(max(0,min(equity*self.config.risk_fraction,cash-pending,daily_remaining,week_remaining)),2)
-            if notional<1 or account.get('trading_blocked') or account.get('account_blocked'):continue
+            if notional<1 or account.get('trading_blocked') or account.get('account_blocked'):
+                blocked.append({'symbol':d['symbol'],'reason':'Cash, loss headroom or account block'});continue
             # Persist unique source-session intent: daily scheduler retries cannot
             # duplicate a buy even after a completed position is closed that day.
             client='swing-'+hashlib.sha256((d['symbol']+expected).encode()).hexdigest()[:28]
@@ -379,8 +431,15 @@ class Runner:
             if not claimed:continue
             try:
                 order=self.broker.buy(d['symbol'],notional,client);self.store.update(client,str(order['status']),'Actual SDK paper market order accepted; fill unconfirmed.',str(order['id']))
+                submitted=True
                 self.store.note('learned paper buy submitted',{'symbol':d['symbol'],'notional':notional,'broker_order_id':str(order['id']),'model_version':version['id'],'decision':d})
-            except Exception:self.store.update(client,'uncertain','Submission unknown; no retry or further entries.');break
+                if self.config.daily_exploration:
+                    self.store.put('daily_trade_status',{'day':day,'status':'Paper learning order submitted; fill requires broker confirmation.','symbol':d['symbol'],'exploration':d.get('exploration',False)});break
+            except Exception:
+                self.store.update(client,'uncertain','Submission unknown; no retry or further entries.')
+                if self.config.daily_exploration:self.store.put('daily_trade_status',{'day':day,'status':'Paper submission outcome unknown; entries blocked until broker reconciliation.'})
+                break
+        if self.config.daily_exploration and blocked and not submitted and not self.store.unresolved():self.store.put('daily_trade_status',{'day':day,'status':'No paper entry: execution checks blocked available candidates. Will retry during this session.','blocked':blocked})
         return self.store.summary()
 
 def main(argv=None):
@@ -389,7 +448,7 @@ def main(argv=None):
     store=Store(args.state)
     if args.status:print(json.dumps(store.summary(),indent=2));return 0
     try:
-        config=Config(symbols=tuple(x.strip().upper() for x in args.symbols.split(',') if x.strip()),enabled=os.getenv('SWING_PAPER_ENABLED','0')=='1',deadline=os.getenv('SWING_DEADLINE',''))
+        config=Config(symbols=tuple(x.strip().upper() for x in args.symbols.split(',') if x.strip()),enabled=os.getenv('SWING_PAPER_ENABLED','0')=='1',daily_exploration=os.getenv('SWING_DAILY_EXPLORATION','0')=='1',deadline=os.getenv('SWING_DEADLINE',''))
         result=Runner(config,store,AlpacaBroker()).run(args.train_only);print(json.dumps(result,indent=2,default=str));return 0
     except Exception as exc:
         message=type(exc).__name__+': '+str(exc);store.put('last_error',message);store.note('headless run failed',{'error':message,'note':'No successful trade, training or delivery inferred.'});LOG.error('%s',message);return 1

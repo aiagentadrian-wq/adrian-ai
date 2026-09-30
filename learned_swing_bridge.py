@@ -10,6 +10,7 @@ APP=None
 class Activation(BaseModel):
     enabled:bool=False
     paper_only:bool=True
+    daily_exploration:bool|None=None
 
 class Engine:
     def __init__(self,root,paper,swing,experiment,event):
@@ -17,17 +18,18 @@ class Engine:
         self.store=policy.Store(Path(root)/'job_v7_private'/'autonomous_swing.db');self.lock=asyncio.Lock();self.last_monitor=None
     def runner(self):
         state=self.experiment.config()
-        config=policy.Config(symbols=tuple(self.swing.config()['universe'][:6]),enabled=self.store.get('enabled',False),deadline=state.get('ends',''))
+        config=policy.Config(symbols=tuple(self.swing.config()['universe'][:12]),enabled=self.store.get('enabled',False),daily_exploration=self.store.get('daily_exploration',False),deadline=state.get('ends',''))
         broker=policy.AlpacaBroker(self.paper.secret('key'),self.paper.secret('secret'))
         return policy.Runner(config,self.store,broker)
     def summary(self):return self.store.summary()|{'worker_running':hasattr(self,'task') and not self.task.done(),'daily_run':'09:40 America/Toronto on actual stock-market sessions','monitor_seconds':30}
-    async def activate(self,enabled):
+    async def activate(self,enabled,daily_exploration=None):
         # The shared one-week start/deadline keeps the two workers from creating
         # independent unlimited account experiments.
         state=self.experiment.config()
         if enabled and (not state.get('enabled') or state.get('halt_entries')):raise HTTPException(400,'An authorized, active paper experiment is required.')
         if enabled:
             self.store.put('start_equity',state['start_equity']);self.store.put('deadline',state['ends'])
+        if daily_exploration is not None:self.store.put('daily_exploration',daily_exploration)
         self.store.put('enabled',enabled);self.store.note('learned swing activation',{'enabled':enabled,'deadline':state.get('ends')});return self.summary()
     async def run(self,train_only=False):
         core=__import__('dashboard_core');token='learned-swing-'+str(id(asyncio.current_task()))
@@ -65,6 +67,12 @@ class Engine:
                 self.store.put('last_scheduled_day',today)
                 try:await self.run(False)
                 except HTTPException:pass
+            elif self.store.get('daily_exploration',False) and due<=now<end-timedelta(minutes=10):
+                last=self.store.get('last_run');status=self.store.get('daily_trade_status') or {}
+                if status.get('day')!=today or status.get('status','').startswith('No paper entry'):
+                    if not last or (now-datetime.fromisoformat(last)).total_seconds()>=300:
+                        try:await self.run(False)
+                        except HTTPException:pass
         # Train newly completed daily history before the next open if started
         # outside the market. No market order is sent by train-only execution.
         if not self.store.model() and self.store.get('initial_training_attempt')!=today:
@@ -90,7 +98,7 @@ def install(app,root,paper,swing,experiment,auth,csrf,event):
     async def settings(body:Activation,req:Request):
         csrf(req)
         if not body.paper_only:raise HTTPException(400,'Only paper trading exists.')
-        async with engine.lock:return await engine.activate(body.enabled)
+        async with engine.lock:return await engine.activate(body.enabled,body.daily_exploration)
     @app.post('/api/swing/learned/train')
     async def train(req:Request):
         csrf(req)

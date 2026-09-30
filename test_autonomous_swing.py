@@ -99,6 +99,32 @@ class HeadlessExecutionTests(unittest.TestCase):
         self.runner.reconcile()
         with self.store.connect() as c:held=c.execute('SELECT * FROM holdings WHERE symbol=?',(order['symbol'],)).fetchone()
         self.assertEqual(held['quantity'],.5);self.assertEqual(held['entry_value'],50)
+    def test_daily_exploration_places_one_bounded_order_despite_wait(self):
+        self.runner.config.daily_exploration=True
+        with self.store.connect() as c:
+            r=c.execute('SELECT model,report FROM models').fetchone();m=json.loads(r['model']);m['trees'][0]['values']=[[-.05]*6];report=json.loads(r['report']);report['paper_eligible']=False
+            c.execute('UPDATE models SET model=?,report=?',(json.dumps(m),json.dumps(report)))
+        self.runner.run();self.runner.run()
+        self.assertEqual(len(self.broker.buys),1);self.assertLessEqual(float(self.broker.buys[0]['notional']),250)
+        with self.store.connect() as c:plan=json.loads(c.execute("SELECT payload FROM orders WHERE side='buy'").fetchone()[0])
+        self.assertTrue(plan['exploration']);self.assertEqual(plan['model_action'],'WAIT')
+        self.assertTrue(all(x['action']=='WAIT' for x in self.store.summary()['last_decisions']))
+        order=self.broker.pending[0];order.update(status='filled',filled_qty='2.5',filled_avg_price='100')
+        self.broker.held=[{'symbol':order['symbol'],'qty':'2.5','market_value':'250'}];self.broker.pending=[order]
+        self.runner.run();self.assertEqual(self.broker.closes,[])
+    def test_daily_exploration_never_bypasses_stale_quote(self):
+        self.runner.config.daily_exploration=True
+        self.broker.quote=lambda symbol:{'timestamp':(NOW-timedelta(minutes=5)).isoformat(),'bid_price':100,'ask_price':100.01}
+        self.runner.run();self.assertEqual(self.broker.buys,[])
+        self.assertIn('No paper entry',self.store.summary()['daily_trade_status']['status'])
+    def test_daily_exploration_retains_deadline_limit(self):
+        self.runner.config.daily_exploration=True;self.store.put('deadline',(NOW-timedelta(seconds=1)).isoformat())
+        self.runner.run();self.assertEqual(self.broker.buys,[])
+    def test_blocked_first_candidate_does_not_hide_successful_paper_entry(self):
+        self.runner.config.daily_exploration=True
+        self.broker.quotes=lambda symbols:{s:{'timestamp':(NOW-timedelta(minutes=5) if s=='SPY' else NOW).isoformat(),'bid_price':100,'ask_price':100.01} for s in symbols}
+        self.runner.run();self.assertEqual(len(self.broker.buys),1)
+        self.assertIn('submitted',self.store.summary()['daily_trade_status']['status'])
     def test_partial_exit_reconciliation_does_not_double_subtract(self):
         with self.store.connect() as c:c.execute('INSERT INTO holdings VALUES(?,?,?,?)',('SPY','original',2,200))
         self.runner.exit('SPY','model exit',[{'symbol':'SPY','qty':'2'}],[])
@@ -111,3 +137,12 @@ class HeadlessExecutionTests(unittest.TestCase):
         with self.store.connect() as c:self.assertIsNone(c.execute('SELECT * FROM holdings WHERE symbol=?',('SPY',)).fetchone())
         self.assertEqual(self.store.summary()['notes'][0]['data']['gross_pnl_usd'],10)
 if __name__=='__main__':unittest.main()
+
+class BrokerClockTests(unittest.TestCase):
+    def test_small_local_skew_uses_verified_source_time(self):
+        with patch.object(bot,'utc',return_value=NOW+timedelta(seconds=104)):
+            self.assertEqual(bot.validate_broker_clock(NOW.isoformat(),'Tue, 29 Sep 2026 15:00:00 GMT','0',.3),NOW)
+    def test_cached_disagreeing_slow_or_excessive_skew_rejected(self):
+        with patch.object(bot,'utc',return_value=NOW):
+            for date,age,elapsed,stamp in [('Tue, 29 Sep 2026 15:00:00 GMT','2',.3,NOW),('Tue, 29 Sep 2026 14:59:00 GMT','0',.3,NOW),('Tue, 29 Sep 2026 15:00:00 GMT','0',6,NOW),('Tue, 29 Sep 2026 14:50:00 GMT','0',.3,NOW-timedelta(minutes=10))]:
+                with self.assertRaises(ValueError):bot.validate_broker_clock(stamp.isoformat(),date,age,elapsed)
