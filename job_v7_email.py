@@ -14,6 +14,9 @@ def build(jobs,resume,checked,errors=(),subject='ADRIAN.AI — 5 job opportuniti
     plain=['ADRIAN.AI — JOB OPPORTUNITIES','Checked: '+checked,
            'Each listing needs verification before applying. No applications submitted.','']
     cards=[];attachments=[]
+    if not jobs:
+        plain.extend(['No new matching, unemailed opportunities were found. Previously emailed listings have not been repeated.','If source checks failed, this is an incomplete search, not proof that no suitable jobs exist.',''])
+        cards.append('<p>No new matching, unemailed opportunities were found. Previously emailed listings have not been repeated. Failed source checks mean the search is incomplete.</p>')
     for i,j in enumerate(jobs,1):
         label='Confirmed automated filter match' if j.get('confirmed') else 'NEEDS VERIFICATION — '+(j.get('reason') or 'Pay/hours not confirmed')
         url=valid_link(j.get('url'))

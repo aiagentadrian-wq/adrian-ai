@@ -1,5 +1,5 @@
 """Explicit owner-requested bridge to the existing V7 radar; no AI-generated job data."""
-import json, subprocess, sys
+import json, subprocess, sys, os
 from pathlib import Path
 
 def run(root, db, now):
@@ -10,7 +10,11 @@ def run(root, db, now):
     with db() as c:
         before=c.execute('SELECT COALESCE(MAX(id),0) FROM email_history').fetchone()[0]
     try:
-        p=subprocess.run([sys.executable,str(root/'job_v7_radar.py')],cwd=str(root),capture_output=True,text=True,timeout=180)
+        # Reuse the server's dependency search paths, including managed runtimes.
+        # A child process does not inherit paths inserted into the parent's sys.path.
+        worker_env=dict(os.environ)
+        worker_env['PYTHONPATH']=os.pathsep.join(dict.fromkeys([str(root)]+[str(Path(x).resolve()) for x in sys.path if x and Path(x).is_dir()]+[x for x in os.environ.get('PYTHONPATH','').split(os.pathsep) if x]))
+        p=subprocess.run([sys.executable,str(root/'job_v7_radar.py')],cwd=str(root),capture_output=True,text=True,timeout=180,env=worker_env)
     except subprocess.TimeoutExpired:return {'ok':False,'error':'Job pipeline timed out. Check the task log before retrying; email status unknown.'}
     with db() as c:
         row=c.execute('SELECT id,subject,recipient,status FROM email_history WHERE id>? AND subject LIKE ? ORDER BY id DESC LIMIT 1',(before,'ADRIAN.AI — % jobs · % resume PDFs')).fetchone()

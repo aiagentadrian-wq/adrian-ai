@@ -29,13 +29,20 @@ async def get_json(url, params=None, headers=None):
     except (httpx.RequestError,ValueError) as e:raise HTTPException(502,f'Data source unavailable: {type(e).__name__}')
 def key(name):return os.getenv(name,'').strip().strip('"').strip("'")
 async def market(symbol,interval='1day',size=60):
+    import paper_trading
+    engine=paper_trading.APP
+    if engine and engine.config().get('key') and engine.config().get('secret') and __import__('re').fullmatch(r'[A-Z]{1,5}',symbol.upper()):
+        return await engine.bars(symbol.upper(),interval,size)
     if not key('TWELVE_DATA_API_KEY'):raise HTTPException(503,'TWELVE_DATA_API_KEY not configured')
-    data=await get_json('https://api.twelvedata.com/time_series',{'symbol':symbol,'interval':interval,'outputsize':size,'apikey':key('TWELVE_DATA_API_KEY')})
+    data=await get_json('https://api.twelvedata.com/time_series',{'symbol':symbol,'interval':interval,'outputsize':size,'timezone':'UTC','apikey':key('TWELVE_DATA_API_KEY')})
     if not data.get('values'):raise HTTPException(502,'Market feed returned no candles: '+str(data.get('message','unknown'))[:120])
     candles=[]
     for x in reversed(data['values']):
         candles.append({'time':x['datetime'],'open':float(x['open']),'high':float(x['high']),'low':float(x['low']),'close':float(x['close']),'volume':float(x['volume']) if x.get('volume') not in (None,'') else None})
-    return {'source':'Twelve Data','retrieved_utc':utc(),'symbol':symbol,'interval':interval,'meta':data.get('meta',{}),'candles':candles,'note':'Data may be delayed or exchange-restricted. Verify feed entitlement and timestamps.'}
+    import trading_guard
+    try:candles,quality=trading_guard.validate_bars(candles,interval)
+    except ValueError as exc:raise HTTPException(502,'Rejected market data: '+str(exc))
+    return {'source':'Twelve Data','retrieved_utc':utc(),'symbol':symbol,'interval':interval,'meta':data.get('meta',{}),'candles':candles,'quality':quality,'timestamp_timezone':'UTC' if interval!='1day' else 'Exchange date','note':'Data may be delayed or exchange-restricted. Verify feed entitlement and timestamps.'}
 async def news(q):
     if not key('GNEWS_API_KEY'):raise HTTPException(503,'GNEWS_API_KEY not configured')
     d=await get_json('https://gnews.io/api/v4/search',{'q':q,'lang':'en','max':8,'apikey':key('GNEWS_API_KEY')})
@@ -86,7 +93,7 @@ def install(app,db,auth,csrf):
         auth(req)
         return {'agents':[{'name':n,'role':d} for n,d in AGENTS],'connections':{x:bool(key(y)) for x,y in [('Twelve Data','TWELVE_DATA_API_KEY'),('GNews','GNEWS_API_KEY'),('FRED','FRED_API_KEY'),('SEC EDGAR','SEC_USER_AGENT')]},'public_sources':['Bank of Canada','Statistics Canada'],'mode':'research_and_manual_paper_journal','ml_status':'not trained; requires timestamped historical dataset and walk-forward evaluation','live_orders_enabled':False}
     @app.get('/api/trading/market')
-    async def market_route(req:Request,symbol:str='AAPL',interval:str='1day'):
+    async def market_route(req:Request,symbol:str,interval:str='1day'):
         auth(req)
         if not __import__('re').fullmatch(r'[A-Za-z0-9.:-]{1,24}',symbol):raise HTTPException(400,'Invalid symbol')
         if interval not in ('1day','1h','15min'):raise HTTPException(400,'Unsupported interval')

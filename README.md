@@ -1,60 +1,89 @@
-# Adrian AI Command Center — V1
-A runnable, private, mobile-responsive command center inspired by a GTA Master Control Terminal. This is a foundation, not a finished autonomous multi-agent system.
+# ADRIAN.AI — Professional Dashboard and Learned Paper Trading
 
-## Windows quick start
-1. Install Python 3.11+ from python.org. During setup check **Add Python to PATH**.
-2. Unzip this project. Open PowerShell inside its folder.
-3. Run:
-   ```powershell
-   py -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   pip install -r requirements.txt
-   python generate_secrets.py
-   python -m uvicorn app:app --host 127.0.0.1 --port 8000
-   ```
-4. Open http://127.0.0.1:8000 and enter the generated password. Keep the `.env` file private.
-5. API Center: add an OpenAI or OpenRouter key and an exact model ID supported by your account. Chat works after this step.
-6. Create agents in the Agents page. You can enable/disable them and chat with them individually.
+A private local dashboard coordinating Manager, Day Trader, Swing Trader, Job Finder and Writer. This cumulative release contains the complete simplified site, ATS résumé workflows, shared memory, measured API status, the TradingView course library, broker-backed paper trading and unattended machine-learning workers.
 
-## Private remote access from phone/tablet
-1. Install Tailscale on your PC and your other device. Sign into the same account and enable MFA on your identity provider.
-2. With the app running on localhost, run `tailscale serve --bg 8000` on your PC. Follow the Tailscale output to find the private HTTPS URL. Do **not** use `tailscale funnel` or router port forwarding.
-3. Open that private URL from a device connected to your tailnet. You still need the command center password.
-4. Use your browser's **Add to Home Screen** option for an app-like shortcut. PWA install behavior depends on the browser.
-5. To turn remote access off, run `tailscale serve reset`.
+**All broker execution is Alpaca paper trading. No real-money trading endpoint exists.** Models can choose NO TRADE for the entire experiment. Profit is not guaranteed.
 
-## Optional email
-Edit `.env` and configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM and REPORT_TO. Restart the server. Email sends only to REPORT_TO after a manual click in V1. Use a dedicated SMTP credential or app password.
+## Complete capabilities
 
-## Security and limitations
-- No public registration. Session expires after 8 hours; sessions are memory-only and reset on restart. Login attempts are rate-limited per client address in memory.
-- API keys are encrypted with Fernet using ENCRYPTION_KEY in `.env`; losing the key makes stored provider keys unrecoverable. Back up `.env` in a secure password manager, not a public repository.
-- Keep the app on 127.0.0.1 and access it remotely through Tailscale Serve. Do not expose port 8000 publicly. Set COOKIE_SECURE=1 in `.env` only if every browser connection to the app is HTTPS; localhost HTTP otherwise needs the default 0.
-- Provider endpoints are restricted to OpenAI and OpenRouter HTTPS hosts. The first connected provider powers all chats in V1. Model routing, per-agent model selection, cost accounting and balance APIs are **not yet implemented**.
-- No live market data, live job scraping, autonomous scheduling, email automation, PC control, voice, persistent chat memory or automatic agent delegation yet. The UI does not falsely claim these actions ran.
-- AI outputs may be wrong. Review market research, job applications, emails and any future PC actions before consequential use.
-- Run behind a trusted private network only. For a production internet-facing deployment, add persistent auth, secure cookies, MFA, reverse-proxy hardening, backup/restore, secrets management, and security review.
+Read [FEATURES.md](FEATURES.md) for every agent, page and workflow.
 
-## V1.1 Manager registry and delegation
-The Manager now receives the actual installed agent registry on every request and has `list_agents` and `delegate_to_agent` AI function tools. Delegation invokes the selected specialist prompt and returns its answer to the Manager. This is **AI-only delegation**, not browser access, real-time market data, live job search, file access, automatic email or PC control. Each call can consume additional API tokens. The four original agents remain Manager, Day Trader, Job Finder and Writer. New agents created in the site appear in the registry automatically. Existing `.env` and `command_center.db` should be retained during an upgrade.
+| Area | Included |
+| --- | --- |
+| Overview / Manager | Agent responsibilities, actual work state, specialist coordination, web research and shared preferences. |
+| Trading Division | Market Terminal, compact candidate comparison, Ask Day Trader, SEC directory and actual paper portfolio. |
+| Learned Swing Trader | yfinance OHLCV, 68 causal statistical features, learned BUY/HOLD/EXIT forecasts, official alpaca-py orders and scheduled monitoring. |
+| Paper experiment | Separate trained intraday model, chronological evaluation, model versions, guarded automatic paper orders and settled outcome journal. |
+| Strategy lab | Optional historical baseline/candidate comparisons, cost stress and version improvement data. |
+| Job Finder | Discovery, verification queue, ATS packages, résumé vault, application progress and configured email sender. |
+| Writer Studio | Assignment-aware drafts, authentic voice context, editable persistent saves and download. |
+| Reports & Email | Briefing, activity and broker-backed daily Manager/swing reports. |
+| API Center / Settings | Measured access/health, encrypted connection settings, writing samples, reviewable memory, security and logout. |
 
-## V1.2 Manager email tool
-Configure SMTP settings in your existing `.env` and restart. The Manager can now send a plain-text email to the single configured REPORT_TO address when the current message explicitly requests sending. For example: “Send me an email with today's activity report.” The Manager's send_email_to_owner tool returns success only after the SMTP server accepts the message; this does not guarantee inbox delivery. Failed sends are reported as errors. Never share `.env`, SMTP credentials, or API keys in chat. Use a dedicated SMTP credential or provider app password.
+## Learned swing framework
+
+`autonomous_swing.py` is a complete modular headless daily script. It fetches completed historical OHLCV using yfinance, generates rolling features over 2–60 sessions, trains multi-output random forests for 1/2/3/5/10/20-session returns and derives entry/hold/exit decisions from forecasts, validation error and assumed costs. It has no fixed RSI/SMA buy trigger. Labels are purged across chronological split boundaries; candidate selection uses validation, followed by separate later-data replay and a frozen-candidate deployment refit.
+
+Model versions retain tests, feature importance, forecasts and before/after comparisons. Reused historical tests are labelled. Yahoo-adjusted history can be revised after corporate actions; causal features do not remove this data limitation. Historical diagnostics, simulation profits and actual broker fills are reported separately.
+
+`TradingClient(paper=True)` is invariant. Entries use SDK `MarketOrderRequest` with notional allocation; owned exits use `close_position`. Durable claims, deterministic entry IDs, fill/partial-fill reconciliation and unknown-submission blocking prevent blind retry. Failed model eligibility or stale/missing evidence blocks entries.
+
+The authorized experiment uses 0.25% risk per trade, 1% daily / 2% experiment loss checks, at most three positions and no leverage. For the learned swing policy, the **entire position notional** is capped at 0.25% equity—about $250 per symbol on a $100,000 paper account—because it does not assume a fixed protective-stop distance. The original seven-day deadline is shared with the intraday worker and preserved across restarts. Stock execution is regular-hours only; 24/7 crypto is not implemented.
+
+The app runs the learned policy ten minutes after exchange open and monitors every 30 seconds. Swing emails occur at open, session midpoint and five minutes after close, with early-close/holiday awareness; Manager daily reporting includes learned policy state. Workers share account-entry locking. Run only one account-entry installation/state.
+
+See [HEADLESS_SWING.md](HEADLESS_SWING.md), [SWING_TRADING.md](SWING_TRADING.md) and [PAPER_TRADING.md](PAPER_TRADING.md).
+
+## Installation
+
+Use Python 3.12 or newer. Bind to localhost; keep passwords, databases and résumé records private.
+
+For an existing configured app, stop its server and run the source-only upgrade from a downloaded release folder:
+
+```powershell
+python install_dashboard_upgrade.py --target "C:\path\to\existing\adrian-command-center"
+```
+
+The allowlisted installer backs up source/database and preserves `.env`, private records and encryption keys. In the existing app environment install `requirements.txt` and restart. A fresh installation:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe generate_secrets.py
+.\.venv\Scripts\python.exe start_server.py
+```
+
+Sign in and configure your AI provider in API Center. The owner's existing connected flagship model was smoke-tested; fresh installs require their own provider/model access. Configure Alpaca **paper** keys and optional Gmail/SMTP settings in the private connection controls. Standalone swing execution instead reads `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` with `os.getenv`; never put real keys in source or GitHub.
+
+## Unattended operation
+
+`install_headless_task.ps1 -PythonPath <absolute pythonw.exe path>` registers the local server at Windows sign-in and 09:20 daily, as the current limited user. Optional `-DependencyPath` supports a prepared library directory. The installer is explicit; merely downloading the repository does not install tasks. The app's calendar determines market runs and email times. `headless_swing_cron.txt` is a standalone daily scheduling example.
+
+The PC must remain on, awake, signed in and connected for this local setup. API or broker failures are recorded; acceptance is not a fill, and SMTP acceptance is not proof of inbox delivery. Software monitoring cannot guarantee an exit during an outage or gap.
+
+## AI, writing and memory
+
+OpenAI Responses/tool support and configured alternate providers are retained. Manager coordination invokes actual registered tools; it does not grant every capability of ChatGPT. Say “Remember that…” to save relevant preferences; stored context can be reviewed or deleted in Settings. This retrieval does not retrain the provider's language model. The trading forests are genuine separately trained ML models.
+
+Writer uses genuine samples, corrections and assignment requirements. No AI-detector pass rate is guaranteed. Job packages preserve supplied facts and require review; application progress is user-recorded, not automatic employer submission. API Center distinguishes configured, verified, stale, limited, denied and unreachable status from actual requests, including yfinance historical access. Credit balances are not guessed.
+
+## Verification
+
+```text
+python -m unittest test_trading_education test_trading_upgrade test_paper_trading test_trading_guard test_dashboard_v2 test_trading_monitor test_swing_trading test_trading_ml test_paper_experiment test_autonomous_swing
+```
+
+The cumulative suite exercises causal features, purged labels, real model fitting, official SDK request construction, paper-only bounds, no duplicate submissions, partial-fill ownership, loss/deadline controls, authentication and the existing dashboard/job/writing workflows. Live verification records are deployment-specific; tests do not establish future profit.
+
+Read [RELEASE_NOTES.md](RELEASE_NOTES.md) for this release's verification and limitations. `.env.example` contains placeholders only. Never commit credentials, private models/databases, résumés, logs or local screenshots.
+
+## Daily paper testing and Job Finder updates
+
+The owner can explicitly enable daily paper exploration to gather forward outcomes even when the model says WAIT. The highest relative forecast is tested with a small allocation; no positive edge is claimed. One new learned paper entry per market day is the target, subject to unchanged cash, loss, position and fresh-quote constraints. No minimum historical closed-trade count is required. Daily risk/exit checks remain active. The learned comparison supports up to 12 configured symbols; the optional strategy lab uses the same list by default.
+
+Job Finder has an integrated durable daily email worker, default 09:00 Toronto when enabled, with same-day catch-up after server startup. It emails new opportunities or an explicit no-new-results/incomplete-source update. Daily claims and accepted-email history prevent duplicate batches; uncertain SMTP handoffs are not blindly retried. The Job Finder page shows its actual next due time and last outcome.
 
 
-## V1.3 intelligence upgrade
-Existing database automatically gains conversation, email_history, delegations and action_log tables. Existing .env and command_center.db are preserved by updater. Chat history stores the latest 16 user/assistant turns per agent for model context. Email history records SMTP acceptance or failure; SMTP acceptance is not proof of delivery. GET /api/activity (authenticated) returns metadata for recent emails, delegations and actions without email body. Stop server before updating; back up .env and database privately.
+## Evidence-based learning and local AI update
 
-
-## V1.4 Adaptive Intelligence
-Adds a Memory & Learning page, user-approved long-term memories, edit/disable/delete controls, memory-aware Manager and specialists, and recorded reviews of email and delegation outcomes. The underlying model does not retrain itself. No autonomous code changes, live job feeds, PC actions or scheduled tasks are included. Only save non-sensitive preferences, corrections, goals and project decisions.
-
-The updater must preserve .env and command_center.db. Back both up privately before installing. Remove duplicate blank SMTP keys from .env; keep exactly one value per setting.
-
-
-## V1.5 General Intelligence
-Manager now has one general-purpose OpenAI hosted web search tool. It automatically chooses it for current public information and returns source URLs. No separate weather/news API keys. Uses the existing OpenAI provider key and selected model; optionally set WEB_SEARCH_MODEL in .env to a supported model if the chosen chat model cannot use hosted search. The OpenAI Responses API web-search tool incurs separate usage charges. This does not supply brokerage-grade real-time prices, private account data, or autonomous code changes. OpenRouter remains supported for normal chat, but hosted search requires OpenAI. Existing SQLite and .env remain untouched by the updater.
-
-
-## V1.6 Writer Studio
-Open Writer Studio in the sidebar. Save original writing samples and explicit style feedback, then create drafts. Samples, feedback and drafts are stored in existing SQLite database. Delete controls remove examples and feedback. Drafts are not sent or submitted. Writer chat and Manager delegation also receive saved style examples. The upgrade does not modify .env or existing database files.
+Supersedes forced daily exploration: no-trade days, distinct post-cost candidates, $25 experimental entries in a $100 budget, separate performance promotion, immutable forward predictions, outcome-based residual learning, planned app-managed exits and an honest scorecard. Local Qwen3 8B via Ollama replaces paid chat calls in the configured installation. See [LEARNING_AND_LOCAL_AI.md](LEARNING_AND_LOCAL_AI.md) for exact gates, limits, setup and limitations.

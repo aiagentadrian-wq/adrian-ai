@@ -64,9 +64,10 @@ def train_model(c,horizon):
     X,y,dates=features(c,h)
     if len(X)<110:raise HTTPException(422,f'Insufficient historical data: {len(X)} labeled examples; require at least 110. Data plan/interval may restrict history.')
     cut=int(len(X)*.75)
-    if len(set(y[:cut]))<2:raise HTTPException(422,'Training period has only one outcome class')
+    train_end=cut-h
+    if len(set(y[:train_end]))<2:raise HTTPException(422,'Training period has only one outcome class')
     model=RandomForestClassifier(n_estimators=120,max_depth=5,min_samples_leaf=8,random_state=42,n_jobs=1,class_weight='balanced_subsample')
-    model.fit(X[:cut],y[:cut]); baseline=DummyClassifier(strategy='prior').fit(X[:cut],y[:cut])
+    model.fit(X[:train_end],y[:train_end]); baseline=DummyClassifier(strategy='prior').fit(X[:train_end],y[:train_end])
     pred=model.predict(X[cut:]);prob=model.predict_proba(X[cut:])[:,list(model.classes_).index(1)]
     bp=baseline.predict(X[cut:]);bprob=baseline.predict_proba(X[cut:])[:,list(baseline.classes_).index(1)]
     # Holdout is contiguous and predictions cannot train on its future labels.
@@ -84,7 +85,7 @@ def train_model(c,horizon):
         equity*=max(0,1+r);peak=max(peak,equity);drawdown=min(drawdown,equity/peak-1)
     latest=features(c+[dict(c[-1]) for _ in range(h)],h)[0][-1] # latest observed features only; appended rows never enter feature window
     p=float(model.predict_proba([latest])[0][list(model.classes_).index(1)])
-    metrics={'holdout_start':dates[cut],'holdout_end':dates[-1],'training_examples':cut,'holdout_examples':len(X)-cut,'accuracy':round(acc,4),'balanced_accuracy':round(bacc,4),'brier':round(brier,4),'baseline_accuracy':round(accuracy_score(y[cut:],bp),4),'baseline_brier':round(bbrier,4),'backtest_trades':len(trade_returns),'illustrative_net_return_pct':round((equity-1)*100,3),'illustrative_max_drawdown_pct':round(drawdown*100,3),'cost_assumption_roundtrip_bps':40}
+    metrics={'holdout_start':dates[cut],'holdout_end':dates[-1],'training_examples':train_end,'purged_boundary_examples':h,'holdout_examples':len(X)-cut,'accuracy':round(acc,4),'balanced_accuracy':round(bacc,4),'brier':round(brier,4),'baseline_accuracy':round(accuracy_score(y[cut:],bp),4),'baseline_brier':round(bbrier,4),'backtest_trades':len(trade_returns),'illustrative_net_return_pct':round((equity-1)*100,3),'illustrative_max_drawdown_pct':round(drawdown*100,3),'cost_assumption_roundtrip_bps':40}
     qualified=len(y[cut:])>=30 and brier<bbrier and bacc>=.52
     return {'model':'RandomForestClassifier','version':'1.0','horizon':horizon,'prediction_target':('next 15-minute bar close direction' if horizon=='day' else 'five trading-day close direction'),'probability_up':round(p,4),'validation':metrics,'validation_gate_passed':qualified,'decision':'Research-only; model did not pass baseline checks' if not qualified else 'Model cleared preliminary holdout checks; not proof of future profitability','feature_names':['return_1','return_5','return_20','sma20_distance','sma50_distance','volatility_20','bar_range','relative_volume'],'data_end':c[-1]['time'],'trained_utc':UTC(),'limitations':['Single chronological holdout; not full rolling retraining','No corporate-action adjustment independently verified','Price history may be delayed or incomplete','Model probability is not independently calibrated','Paper backtest ignores borrow, taxes, market impact and currency conversion']}
 
