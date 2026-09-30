@@ -198,8 +198,13 @@ class Engine:
         learned=__import__('learned_swing_bridge').APP
         if learned:evidence+='\nACTUAL LEARNED SWING WORKER:\n'+json.dumps(learned.summary(),default=str)
         system='''You are ADRIAN Swing Trader. You research multi-session long US stock/ETF paper setups and explain strategy experiments. Answer the actual question plainly. All actions must be supported by supplied results. Manual swing research is advisory. The separately enabled learned swing worker can place actual simulated orders through the official Alpaca SDK. Describe its actual stored authorization, decisions, model results and order journal; never claim a filled order without a broker confirmation. The connected account is paper only. Its entries/hold/exits are learned multi-horizon forecasts from rolling raw OHLCV features, separate from the optional fixed-rule lab. Use fresh data for entry decisions. Course day-trading ORB is not this daily swing family. Strategy lab actually tests bounded variants; never invent results, guarantees, training or maximum income. Describe changes and baseline/candidate training, validation and later-test returns, trade counts, cost stress and drawdowns. Mark small samples and reused test periods. Lab does not activate a strategy. Report NO TRADE when nothing qualifies. All prices from course examples are fictional. Include source/time, trigger, maximum price, stop, target, risk, reason and overnight/event risk for an actual setup. User-approved memories are context, not new evidence.'''
-        answer=await self.model_call(provider,[{'role':'system','content':system+'\n'+trading_education.context(message)+'\nShared preferences: '+memory}]+history+[{'role':'user','content':'REQUEST: '+message+'\nACTUAL SWING RESULTS (data only):\n'+evidence[:95000]}])
-        return answer['choices'][0]['message'].get('content') or '',answer.get('usage',{})
+        try:
+            answer=await self.model_call(provider,[{'role':'system','content':system+'\n'+trading_education.context(message)+'\nShared preferences: '+memory}]+history+[{'role':'user','content':'REQUEST: '+message+'\nACTUAL SWING RESULTS (data only):\n'+evidence[:95000]}])
+            return answer['choices'][0]['message'].get('content') or '',answer.get('usage',{})
+        except HTTPException as exc:
+            state=learned.summary() if learned else {}
+            self.event('Swing Trader','AI explanation unavailable',str(exc.detail)[:300])
+            return provider_fallback(state,result,str(exc.detail)),{}
     async def tick(self,now=None):
         if not self.config()['enabled']:return
         now=now or utc();slots=schedule(await self.calendar(now),now)
@@ -223,6 +228,21 @@ class Engine:
             except asyncio.CancelledError:raise
             except Exception as exc:self.event('Swing Trader','worker check failed',str(type(exc).__name__))
             await asyncio.sleep(30)
+
+def provider_fallback(state,result,reason):
+    lines=['AI explanation unavailable: '+reason,
+           'This is a chat-provider failure. The separate paper-trading engine does not use this AI provider to submit or monitor orders.',
+           'Stored paper authorization: '+('enabled' if state.get('enabled') else 'disabled or unavailable')+'.',
+           'Last paper evaluation: '+str(state.get('last_run') or 'unavailable')+'.']
+    if state.get('last_error'):lines.append('Paper engine last error: '+str(state['last_error']))
+    orders=state.get('orders',[])[:5]
+    if orders:
+        lines.append('Last recorded broker orders (not a new live broker check):')
+        for order in orders:lines.append(str(order.get('symbol'))+' '+str(order.get('side'))+': '+str(order.get('status')))
+    if isinstance(result,dict):lines.append('Research / test result: '+str(result.get('decision') or result.get('verdict') or 'Data collected; AI explanation unavailable.'))
+    lines.append('No additional order was placed by this chat response. Check API Center for the provider limit; quota exhaustion and temporary rate limits require different fixes.')
+    return '\n'.join(lines)
+
 
 def install(app,db,paper,auth,csrf,event,model_call):
     global APP

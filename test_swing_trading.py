@@ -76,3 +76,13 @@ class SwingSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.engine.save(swing.DEFAULTS);self.engine.calendar=AsyncMock()
         await self.engine.tick();self.engine.calendar.assert_not_called()
 if __name__=='__main__':unittest.main()
+
+class ProviderFallbackTests(unittest.TestCase):
+    def test_failure_shows_recorded_execution_without_claiming_new_fill(self):
+        result=swing.provider_fallback({'enabled':True,'last_run':'sample-time','orders':[{'symbol':'AMD','side':'buy','status':'filled'},{'symbol':'QQQ','side':'buy','status':'pending_new'}]},None,'HTTP 429')
+        self.assertIn('AMD buy: filled',result)
+        self.assertIn('QQQ buy: pending_new',result)
+        self.assertIn('not a new live broker check',result)
+        self.assertIn('No additional order',result)
+    def test_missing_state_does_not_claim_active_engine(self):
+        self.assertIn('disabled or unavailable',swing.provider_fallback({},None,'HTTP 429'))
