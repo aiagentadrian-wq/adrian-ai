@@ -32,6 +32,29 @@ def normalize(data):
 
 async def call(provider,messages,key,tools=None,max_tokens=1400):
     model=provider['model']
+    if provider['base_url'].rstrip('/')=='http://127.0.0.1:11434/v1':
+        # Exact loopback only. No paid fallback and no hidden desktop/shell access.
+        local=[]
+        for m in messages:
+            v={k:val for k,val in m.items() if not k.startswith('_')}
+            if isinstance(v.get('content'),str):
+                limit=4500 if v.get('role')=='system' else 9000 if m is messages[-1] else 500
+                if len(v['content'])>limit:v['content']=v['content'][:limit]+' [truncated; request focused evidence if needed]'
+            for call in v.get('tool_calls',[]):
+                if isinstance(call.get('function',{}).get('arguments'),str):
+                    call['function']=dict(call['function'],arguments=json.loads(call['function']['arguments']))
+            local.append(v)
+        payload={'model':model,'messages':local,'stream':False,'think':False,'options':{'num_ctx':8192,'num_predict':min(max_tokens,1400),'temperature':0.2},'keep_alive':'15m'}
+        if tools:payload['tools']=tools
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:r=await client.post('http://127.0.0.1:11434/api/chat',json=payload)
+            if r.status_code>=400:raise HTTPException(502,'Local AI unavailable (HTTP '+str(r.status_code)+'). Check Ollama and installed model; no paid fallback was used.')
+            data=r.json();message=data['message']
+            for i,call in enumerate(message.get('tool_calls',[])):
+                call.setdefault('id','local-'+str(i));call.setdefault('type','function')
+                if not isinstance(call['function'].get('arguments'),str):call['function']['arguments']=json.dumps(call['function'].get('arguments',{}))
+            return {'choices':[{'message':message}],'usage':{'prompt_tokens':data.get('prompt_eval_count',0),'completion_tokens':data.get('eval_count',0)},'model':model}
+        except httpx.RequestError:raise HTTPException(502,'Local AI is not responding. Start Ollama; no paid fallback was used.')
     use_responses=provider['base_url'].rstrip('/')=='https://api.openai.com/v1' and (model.startswith('gpt-5') or model.startswith('gpt-6') or model.startswith('o'))
     if use_responses:
         payload={'model':model,'input':response_input(messages),'max_output_tokens':max(6000,max_tokens+3000),'store':False,'include':['reasoning.encrypted_content'],'reasoning':{'effort':'medium'}}

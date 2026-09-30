@@ -82,3 +82,8 @@ Read [RELEASE_NOTES.md](RELEASE_NOTES.md) for this release's verification and li
 The owner can explicitly enable daily paper exploration to gather forward outcomes even when the model says WAIT. The highest relative forecast is tested with a small allocation; no positive edge is claimed. One new learned paper entry per market day is the target, subject to unchanged cash, loss, position and fresh-quote constraints. No minimum historical closed-trade count is required. Daily risk/exit checks remain active. The learned comparison supports up to 12 configured symbols; the optional strategy lab uses the same list by default.
 
 Job Finder has an integrated durable daily email worker, default 09:00 Toronto when enabled, with same-day catch-up after server startup. It emails new opportunities or an explicit no-new-results/incomplete-source update. Daily claims and accepted-email history prevent duplicate batches; uncertain SMTP handoffs are not blindly retried. The Job Finder page shows its actual next due time and last outcome.
+
+
+## Evidence-based learning and local AI update
+
+Supersedes forced daily exploration: no-trade days, distinct post-cost candidates, $25 experimental entries in a $100 budget, separate performance promotion, immutable forward predictions, outcome-based residual learning, planned app-managed exits and an honest scorecard. Local Qwen3 8B via Ollama replaces paid chat calls in the configured installation. See [LEARNING_AND_LOCAL_AI.md](LEARNING_AND_LOCAL_AI.md) for exact gates, limits, setup and limitations.

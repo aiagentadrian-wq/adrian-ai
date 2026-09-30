@@ -32,3 +32,8 @@ Broker-time freshness checks use the official paper SDK clock response, verified
 
 
 Continuous paper opportunities: the daily one-entry cap has been removed. During the scheduled market window, the worker reevaluates every five minutes even after a successful entry. It can submit one new candidate per evaluation, up to the shared three-position cap, subject to existing cash, loss, freshness and spread checks. Unresolved orders block new entries; the same symbol and daily dataset cannot generate duplicate purchases. The learned forecasts still update from completed daily bars, not every five minutes.
+
+
+## Evidence-based learning and local AI update
+
+Supersedes forced daily exploration: no-trade days, distinct post-cost candidates, $25 experimental entries in a $100 budget, separate performance promotion, immutable forward predictions, outcome-based residual learning, planned app-managed exits and an honest scorecard. Local Qwen3 8B via Ollama replaces paid chat calls in the configured installation. See [LEARNING_AND_LOCAL_AI.md](LEARNING_AND_LOCAL_AI.md) for exact gates, limits, setup and limitations.

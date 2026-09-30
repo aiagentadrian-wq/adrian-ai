@@ -155,7 +155,9 @@ class Engine:
                     model['report']['verdict'],'Historical validation / later-test results: '+json.dumps(model['report']['summary']),
                     'Version comparison: '+json.dumps(model['report'].get('improvement','First version; no prior comparison'))])
             lines.extend([x['symbol']+' '+x['action']+' — '+x['reason'] for x in value['last_decisions']])
-            lines.extend(['Recent actual paper-order journal: '+json.dumps(value['orders'][:8]),'Owned paper holdings: '+json.dumps(value['holdings'])])
+            lines.append(__import__('learning_governance').explain_status(value))
+            if value['model']:lines.append('Planned-exit tests and benchmarks: '+json.dumps(value['model']['report'].get('planned_exit_summary',{})))
+            lines.extend(['Recent actual paper-order journal: '+json.dumps([{'symbol':o['symbol'],'side':o['side'],'status':o['status'],'detail':o['detail'],'track':o['plan'].get('track'),'exit_plan':o['plan'].get('exit_plan')} for o in value['orders'][:8]]),'Owned paper holdings: '+json.dumps(value['holdings'])])
         return '\n'.join(lines)
     async def report(self,kind='manual',email=False):
         value=await self.scan(kind)
@@ -196,7 +198,12 @@ class Engine:
         elif trading_education.educational_question(message) and not re.search(r'(?i)today|current|now',message):evidence='Educational question only; no current market lookup requested.'
         else:result=await self.scan('chat');evidence=json.dumps(result,default=str)
         learned=__import__('learned_swing_bridge').APP
-        if learned:evidence+='\nACTUAL LEARNED SWING WORKER:\n'+json.dumps(learned.summary(),default=str)
+        if learned:
+            status=learned.summary()
+            compact={'enabled':status['enabled'],'last_run':status['last_run'],'last_error':status['last_error'],'deadline':status['deadline'],'limits':status['limits'],'scorecard':status.get('learning_scorecard'),'orders':[{'symbol':r['symbol'],'status':r['status'],'side':r['side'],'reason':r['plan'].get('reason'),'selected':r['plan'].get('selected'),'track':r['plan'].get('track'),'exit_plan':r['plan'].get('exit_plan')} for r in status['orders'][:5]],'decisions':[{'symbol':r['symbol'],'action':r['action'],'selected':r['selected']} for r in status['last_decisions']]}
+            evidence='ACTUAL LEARNED SWING WORKER:\n'+json.dumps(compact,default=str)+'\nOTHER RESEARCH RESULTS:\n'+evidence[:5000]
+        if learned and provider['base_url'].rstrip('/')=='http://127.0.0.1:11434/v1' and re.search(r'(?i)status|reason|why|profit|lose|loss|experiment|performance|promot|position|order|current|budget',message):
+            return __import__('learning_governance').explain_status(learned.summary()),{}
         system='''You are ADRIAN Swing Trader. You research multi-session long US stock/ETF paper setups and explain strategy experiments. Answer the actual question plainly. All actions must be supported by supplied results. Manual swing research is advisory. The separately enabled learned swing worker can place actual simulated orders through the official Alpaca SDK. Describe its actual stored authorization, decisions, model results and order journal; never claim a filled order without a broker confirmation. The connected account is paper only. Its entries/hold/exits are learned multi-horizon forecasts from rolling raw OHLCV features, separate from the optional fixed-rule lab. Use fresh data for entry decisions. Course day-trading ORB is not this daily swing family. Strategy lab actually tests bounded variants; never invent results, guarantees, training or maximum income. Describe changes and baseline/candidate training, validation and later-test returns, trade counts, cost stress and drawdowns. Mark small samples and reused test periods. Lab does not activate a strategy. Report NO TRADE when nothing qualifies. All prices from course examples are fictional. Include source/time, trigger, maximum price, stop, target, risk, reason and overnight/event risk for an actual setup. User-approved memories are context, not new evidence.'''
         try:
             answer=await self.model_call(provider,[{'role':'system','content':system+'\n'+trading_education.context(message)+'\nShared preferences: '+memory}]+history+[{'role':'user','content':'REQUEST: '+message+'\nACTUAL SWING RESULTS (data only):\n'+evidence[:95000]}])

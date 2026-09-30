@@ -15,6 +15,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
+import learning_governance as governance
 
 LOCAL=ZoneInfo('America/Toronto');HORIZONS=(1,2,3,5,10,20);WINDOWS=(2,3,5,10,20,40,60)
 LOG=logging.getLogger('adrian.learned_swing')
@@ -40,6 +41,7 @@ class Config:
     cost_bps_each_side:float=20
     enabled:bool=False
     daily_exploration:bool=False
+    evidence_mode:bool=False
     deadline:str=''
     def __post_init__(self):
         import re
@@ -75,7 +77,7 @@ class Store:
     def model(self):
         with self.connect() as c:r=c.execute('SELECT * FROM models ORDER BY id DESC LIMIT 1').fetchone()
         if not r:return None
-        return dict(r)|{'model':json.loads(r['model']),'report':json.loads(r['report'])}
+        return dict(r)|{'model':json.loads(r['model']),'report':governance.report_status(json.loads(r['report']))}
     def summary(self):
         with self.connect() as c:
             orders=[dict(r) for r in c.execute('SELECT * FROM orders ORDER BY at DESC LIMIT 30')]
@@ -84,7 +86,8 @@ class Store:
         for r in orders:r['plan']=json.loads(r.pop('payload'))
         model=self.model()
         return {'engine':'Learned daily swing policy / yfinance / alpaca-py PAPER','enabled':self.get('enabled',False),'daily_exploration':self.get('daily_exploration',False),'daily_trade_status':self.get('daily_trade_status'),'deadline':self.get('deadline'),'last_run':self.get('last_run'),'last_error':self.get('last_error'),'model':{'id':model['id'],'at':model['at'],'source_date':model['source_date'],'report':model['report']} if model else None,'orders':orders,'holdings':holdings,'notes':notes,'last_decisions':self.get('last_decisions',[]),
-                'limits':{'risk_per_new_position_percent':.25,'max_positions':3,'daily_loss_limit_percent':1,'experiment_loss_limit_percent':2,'allocation_note':'Notional is capped at 0.25% of equity. For unlevered long stock this bounds capital at risk even if the stock becomes worthless; no fixed technical stop is assumed.'},
+                'learning_scorecard':governance.scorecard(self),
+                'limits':{'risk_per_new_position_percent':.25,'max_positions':3,'daily_loss_limit_percent':1,'experiment_loss_limit_percent':2,'allocation_note':'Notional is capped at 0.25% of equity. For unlevered long stock this bounds capital at risk even if the stock becomes worthless; planned app-managed stop/target/time exits can exceed planned loss during gaps or downtime.'},
                 'note':'Learned entries/exits are forecasts, not guaranteed income. No model edits its risk controls or executable code. PC/server/network must remain available.'}
 
 def clean_prices(frame,before):
@@ -203,6 +206,7 @@ def fit_policy(datasets,cost_bps=20):
             'important_features':sorted([{'feature':k,'weight':round(float(v),5)} for k,v in zip(feature_names,selected['importance'])],key=lambda r:r['weight'],reverse=True)[:12],
             'cost_stress':{str(cost):{symbol:replay_policy(prices,x,selected,errors,*periods['test'],cost) for symbol,(prices,x) in prepared.items()} for cost in (5,20,50)},
             'limitations':['Adjusted Yahoo history can be retrospectively revised; free data is not an executable quote or point-in-time fundamental database.','Current ticker universe introduces selection/survivorship bias. Daily features can miss sudden events and overnight gaps.','Purged chronological model selection; repeated training reuses test history, and subsequent forward-paper results are separate.','Validation MAE is an uncertainty allowance, not a calibrated probability or guaranteed return bound.','A learned policy cannot promise profit or recognize every market event. No generated code or risk-limit self-modification.']}
+    report['planned_exit_tests']={period:{str(cost):{symbol:governance.replay_planned(prices,x,selected,errors,*periods[period],cost) for symbol,(prices,x) in prepared.items()} for cost in (20,50)} for period in ('validation','test')}
     # Freeze chosen parameters, then refit only on rows with fully matured outcomes.
     mature=training+validation+test
     estimator=RandomForestRegressor(n_estimators=50,random_state=23,n_jobs=1,**choice['parameters'])
@@ -318,9 +322,12 @@ class Runner:
                 if quantity>0:
                     value=quantity*float(order['filled_avg_price'])
                     if row['side']=='buy':
+                        governance.register_trade(self.store,row['client_id'],row['symbol'],json.loads(row['payload']),value,quantity,row['at'])
                         with self.store.connect() as c:c.execute('INSERT INTO holdings VALUES(?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET quantity=excluded.quantity,entry_value=excluded.entry_value',(row['symbol'],row['client_id'],quantity,value))
                     else:
-                        plan=json.loads(row['payload']);previous=float(plan.get('_accounted_qty',0));delta=max(0,quantity-previous)
+                        plan=json.loads(row['payload'])
+                        if plan.get('entry_client'):governance.record_exit(self.store,row['client_id'],plan['entry_client'],quantity,value,plan.get('reason',''),utc())
+                        previous=float(plan.get('_accounted_qty',0));delta=max(0,quantity-previous)
                         with self.store.connect() as c:
                             holding=c.execute('SELECT * FROM holdings WHERE symbol=?',(row['symbol'],)).fetchone()
                             if holding and delta:
@@ -343,7 +350,7 @@ class Runner:
         if any(o['symbol']==symbol for o in opens):return
         if any(o['symbol']==symbol for o in self.store.unresolved()):return
         client='swing-exit-'+secrets.token_hex(12)
-        with self.store.connect() as c:c.execute('INSERT INTO orders VALUES(?,?,?,?,?,?,?,?)',(client,utc().isoformat(),symbol,'sell','submitting',None,json.dumps({'reason':reason,'entry_value':owned['entry_value'],'entry_quantity':owned['quantity']}),'Claim persisted before SDK close request.'))
+        with self.store.connect() as c:c.execute('INSERT INTO orders VALUES(?,?,?,?,?,?,?,?)',(client,utc().isoformat(),symbol,'sell','submitting',None,json.dumps({'reason':reason,'entry_value':owned['entry_value'],'entry_quantity':owned['quantity'],'entry_client':owned['entry_client']}),'Claim persisted before SDK close request.'))
         try:
             order=self.broker.close(symbol);self.store.update(client,str(order['status']),'SDK close_position submitted; fill unconfirmed.',str(order['id']))
         except Exception:self.store.update(client,'uncertain','Close outcome unknown; position reconciliation required before any retry.')
@@ -368,15 +375,45 @@ class Runner:
             for symbol in owned:self.exit(symbol,'Risk/experiment deadline exit',positions,opens)
             self.store.note('entries halted',{'reason':'Deadline or account loss limit','equity':account['equity']});return self.store.summary()
         expected=self.expected_session(now);version=self.store.model();datasets=None
-        if not version or version['source_date']!=expected or set(version['report'].get('evaluations',{}).get('test',self.config.symbols))!=set(self.config.symbols):datasets=self.learn();version=self.store.model()
+        if train_only or not version or (not self.config.evidence_mode and version['source_date']!=expected) or set(version['report'].get('evaluations',{}).get('test',self.config.symbols))!=set(self.config.symbols):datasets=self.learn();version=self.store.model()
         if train_only:return self.store.summary()
         if datasets is None:datasets={s:self.loader(s,day) for s in self.config.symbols}
         if any(str(f.index[-1].date())!=expected for f in datasets.values()):raise ValueError('Stale Yahoo data; no learned decision or order permitted')
+        if self.config.evidence_mode:
+            governance.mature(self.store,datasets,now);governance.evaluate_outcome_shadow(self.store);governance.train_outcomes(self.store)
+            governance.promotion(self.store,version['id'],version['report'])
+        evidence_sessions=[]
+        if self.config.evidence_mode:evidence_sessions=[r for r in self.broker.calendar(day,self.store.get('deadline')[:10]) if day<=str(r['date'])[:10]<self.store.get('deadline')[:10]]
         decisions=[];model=version['model'];report=version['report'];errors=report['validation_error_by_horizon']
         with self.store.connect() as c:owned={r['symbol'] for r in c.execute('SELECT symbol FROM holdings')}
         for symbol,prices in datasets.items():
-            x=statistical_features(prices).iloc[-1];d=decision(predict(model,x.to_numpy()),errors,self.config.cost_bps_each_side,symbol in owned)
+            x=statistical_features(prices).iloc[-1]
+            forecasts=predict(model,x.to_numpy())
+            if self.config.evidence_mode:forecasts=governance.corrected_forecasts(self.store,version['id'],x.to_numpy(),forecasts)
+            d=decision(forecasts,errors,self.config.cost_bps_each_side,symbol in owned)
+            if self.config.evidence_mode:
+                options=[p for p in d['forecasts'] if p['horizon_sessions']<=min(5,len(evidence_sessions))]
+                if options:
+                    d['selected']=max(options,key=lambda p:p['score_per_session'])
+                    d['action']=('HOLD' if symbol in owned else 'BUY') if d['selected']['conservative_net_estimate']>0 else ('EXIT' if symbol in owned else 'WAIT')
+                else:d['action']='EXIT' if symbol in owned else 'WAIT'
             d.update(symbol=symbol,model_version=version['id'],as_of=expected)
+            if self.config.evidence_mode:
+                d['entry_features']=x.to_numpy().tolist()
+                regime='positive_trend' if float(x.get('momentum_20',0))>0 else 'negative_trend'
+                governance.record_predictions(self.store,version['id'],symbol,expected,x.to_numpy(),predict(model,x.to_numpy()),errors,regime,now)
+                governance.record_calibrated_shadow(self.store,version['id'],symbol,expected,x.to_numpy(),predict(model,x.to_numpy()),errors,regime,now)
+                champion=self.store.get('research_champion')
+                if champion and champion!=version['id']:
+                    with self.store.connect() as c:old=c.execute('SELECT * FROM models WHERE id=?',(champion,)).fetchone()
+                    if old:
+                        oldmodel=json.loads(old['model']);oldreport=json.loads(old['report'])
+                        governance.record_predictions(self.store,champion,symbol,expected,x.to_numpy(),predict(oldmodel,x.to_numpy()),oldreport['validation_error_by_horizon'],regime,now)
+
+            if self.config.evidence_mode and d['action']=='EXIT' and d['selected']['forecast_gross_return']>2*self.config.cost_bps_each_side/10000:
+                with self.store.connect() as c:entry_plan=c.execute('SELECT o.payload FROM holdings h JOIN orders o ON h.entry_client=o.client_id WHERE h.symbol=?',(symbol,)).fetchone()
+                if entry_plan and json.loads(entry_plan['payload']).get('track')=='experimental':
+                    d['action']='HOLD';d['reason']='Experimental hypothesis remains positive before uncertainty allowance; obey planned stop, target and time exit. Exit earlier if raw post-cost forecast turns nonpositive.'
             if d['action']=='EXIT' and self.config.daily_exploration:
                 with self.store.connect() as c:entry=c.execute('SELECT o.at,o.payload FROM holdings h JOIN orders o ON o.client_id=h.entry_client WHERE h.symbol=?',(symbol,)).fetchone()
                 if entry and json.loads(entry['payload']).get('exploration') and datetime.fromisoformat(entry['at']).astimezone(LOCAL).date().isoformat()==day:
@@ -389,7 +426,11 @@ class Runner:
             if d['action']=='EXIT':self.exit(d['symbol'],d['reason'],positions,opens)
         self.reconcile()
         if self.store.unresolved():return self.store.summary()
-        if self.config.daily_exploration:
+        if self.config.evidence_mode:
+            sessions=evidence_sessions
+            attempts,why=governance.choose(decisions,self.store.get('research_champion'),version['id'],len(sessions),self.store)
+            self.store.put('daily_trade_status',{'day':day,'status':why})
+        elif self.config.daily_exploration:
             # Research WAIT stays visible. Paper exploration is a separate,
             # explicitly authorized learning action, not a profitable signal.
             attempts=[d.copy()|{'model_action':d['action'],'exploration':d['action']!='BUY','action':'BUY','reason':d['reason'] if d['action']=='BUY' else 'Owner-authorized daily paper exploration despite model WAIT; selected by learned relative forecast. No positive edge claimed.'} for d in decisions if d['symbol'] not in owned]
@@ -418,8 +459,17 @@ class Runner:
             daily_remaining=self.store.get('day_equity')*self.config.daily_loss_fraction-max(0,self.store.get('day_equity')-equity)-existing_risk
             week_remaining=self.store.get('start_equity')*self.config.week_loss_fraction-max(0,self.store.get('start_equity')-equity)-existing_risk
             notional=round(max(0,min(equity*self.config.risk_fraction,cash-pending,daily_remaining,week_remaining)),2)
+            if self.config.evidence_mode and d.get('track')=='experimental':notional=min(notional,25.,governance.experiment_available(self.store))
             if notional<1 or account.get('trading_blocked') or account.get('account_blocked'):
                 blocked.append({'symbol':d['symbol'],'reason':'Cash, loss headroom or account block'});continue
+            if self.config.evidence_mode:
+                target=sessions[min(d['selected']['horizon_sessions'],len(sessions))-1]
+                from swing_trading import session_times
+                if 'T' in str(target['close']):
+                    close_at=datetime.fromisoformat(str(target['close'])).replace(tzinfo=LOCAL).astimezone(timezone.utc)
+                else:_,close_at=session_times(target)
+                expiry=min(close_at-timedelta(minutes=10),datetime.fromisoformat(self.store.get('deadline')))
+                d['exit_plan']=governance.plan_exit(d,ask,notional,now,expiry.isoformat())
             # Persist unique source-session intent: daily scheduler retries cannot
             # duplicate a buy even after a completed position is closed that day.
             client='swing-'+hashlib.sha256((d['symbol']+expected).encode()).hexdigest()[:28]

@@ -18,10 +18,10 @@ class Engine:
         self.store=policy.Store(Path(root)/'job_v7_private'/'autonomous_swing.db');self.lock=asyncio.Lock();self.last_monitor=None
     def runner(self):
         state=self.experiment.config()
-        config=policy.Config(symbols=tuple(self.swing.config()['universe'][:12]),enabled=self.store.get('enabled',False),daily_exploration=self.store.get('daily_exploration',False),deadline=state.get('ends',''))
+        config=policy.Config(evidence_mode=True,symbols=tuple(self.swing.config()['universe'][:12]),enabled=self.store.get('enabled',False),daily_exploration=self.store.get('daily_exploration',False),deadline=state.get('ends',''))
         broker=policy.AlpacaBroker(self.paper.secret('key'),self.paper.secret('secret'))
         return policy.Runner(config,self.store,broker)
-    def summary(self):return self.store.summary()|{'worker_running':hasattr(self,'task') and not self.task.done(),'daily_run':'09:40 America/Toronto on actual stock-market sessions','monitor_seconds':30}
+    def summary(self):return self.store.summary()|{'worker_running':hasattr(self,'task') and not self.task.done(),'daily_run':'Every five minutes during regular stock-market sessions','monitor_seconds':30}
     async def activate(self,enabled,daily_exploration=None):
         # The shared one-week start/deadline keeps the two workers from creating
         # independent unlimited account experiments.
@@ -48,7 +48,10 @@ class Engine:
     async def monitor(self):
         runner=self.runner();await asyncio.to_thread(runner.reconcile)
         account=await self.paper.broker('/v2/account');clock=await self.paper.broker('/v2/clock');state=self.experiment.config()
-        if not self.store.get('enabled',False):return
+        positions=await asyncio.to_thread(runner.broker.positions);orders=await asyncio.to_thread(runner.broker.orders)
+        policy.governance.adopt_legacy(self.store,positions,self.store.get('deadline'),policy.utc())
+        for symbol,reason in policy.governance.monitor(self.store,positions,policy.utc()):
+            if clock['is_open']:await asyncio.to_thread(runner.exit,symbol,reason,positions,orders)
         deadline=self.store.get('deadline');equity=float(account['equity'])
         halt=bool(state.get('halt_entries')) or deadline and policy.utc()>=datetime.fromisoformat(deadline) or equity<=state.get('start_equity',equity)*.98 or equity<=state.get('day_equity',equity)*.99
         if halt and clock['is_open']:
@@ -57,7 +60,7 @@ class Engine:
             for symbol in symbols:await asyncio.to_thread(runner.exit,symbol,'Shared loss limit or experiment deadline',positions,orders)
             self.store.put('enabled',False)
     async def tick(self):
-        if not self.store.get('enabled',False) and not self.store.unresolved():return
+        if not self.store.get('enabled',False) and not self.store.unresolved() and not self.store.summary()['holdings']:return
         await self.monitor();now=policy.utc();today=now.astimezone(policy.LOCAL).date().isoformat()
         if not self.store.get('enabled',False):return
         for row in await self.swing.calendar(now):
@@ -67,7 +70,7 @@ class Engine:
                 self.store.put('last_scheduled_day',today)
                 try:await self.run(False)
                 except HTTPException:pass
-            elif self.store.get('daily_exploration',False) and start<=now<end:
+            elif start<=now<end-timedelta(minutes=10):
                 last=self.store.get('last_run')
                 if not last or (now-datetime.fromisoformat(last)).total_seconds()>=300:
                     try:await self.run(False)

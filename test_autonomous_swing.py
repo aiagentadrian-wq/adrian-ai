@@ -115,6 +115,26 @@ class HeadlessExecutionTests(unittest.TestCase):
         self.assertEqual(len(self.broker.buys),2)
         self.assertNotEqual(self.broker.buys[0]['symbol'],self.broker.buys[1]['symbol'])
         self.runner.run();self.assertEqual(len(self.broker.buys),2)
+    def test_evidence_mode_records_predictions_but_rejects_tied_entries(self):
+        self.runner.config.evidence_mode=True
+        self.runner.run()
+        self.assertEqual(self.broker.buys,[])
+        self.assertGreater(self.store.summary()['learning_scorecard']['pending_predictions'],0)
+    def test_evidence_entry_has_budgeted_exit_plan(self):
+        self.runner.config.evidence_mode=True
+        self.broker.calendar=lambda a,b:[{'date':'2026-09-28','open':'09:30','close':'16:00'},{'date':'2026-09-29','open':'09:30','close':'16:00'},{'date':'2026-09-30','open':'09:30','close':'16:00'}]
+        original=bot.governance.choose
+        def pick(decisions,*args):return original(decisions[:1],*args)
+        with patch.object(bot.governance,'choose',side_effect=pick):self.runner.run()
+        self.assertEqual(len(self.broker.buys),1)
+        self.assertLessEqual(float(self.broker.buys[0]['notional']),25)
+        plan=self.store.summary()['orders'][0]['plan'];self.assertIn('exit_plan',plan);self.assertEqual(plan['track'],'experimental')
+        order=self.broker.pending[0];order.update(status='filled',filled_qty='.25',filled_avg_price='100');self.broker.held=[{'symbol':order['symbol'],'qty':'.25','market_value':'25'}]
+        self.runner.run();self.assertEqual(self.broker.closes,[])
+    def test_explicit_training_does_not_get_skipped_for_frozen_model(self):
+        self.runner.config.evidence_mode=True
+        with patch.object(self.runner,'learn',return_value={}) as learn:self.runner.run(train_only=True)
+        learn.assert_called_once();self.assertEqual(self.broker.buys,[])
     def test_daily_exploration_never_bypasses_stale_quote(self):
         self.runner.config.daily_exploration=True
         self.broker.quote=lambda symbol:{'timestamp':(NOW-timedelta(minutes=5)).isoformat(),'bid_price':100,'ask_price':100.01}

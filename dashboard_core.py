@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 DB = None
 RUNNING = {}
 CATALOG = [
+    ('localai','Local AI / Ollama','On-device chat and reports; no per-token provider bill',None),
     ('yfinance','Yahoo Finance / yfinance','Historical OHLCV for learned swing models; delayed research data','public'),
     ('alpaca','Alpaca Paper','Simulated account and IEX-only market data',None),
     ('gmail','Gmail approvals','Authenticated approval replies and trading reports',None),
@@ -48,6 +49,7 @@ def observe(service, status, detail):
                   (service,status,str(detail)[:240],stamp()))
 
 def service_for(url):
+    if str(url).startswith('http://127.0.0.1:11434/'):return 'localai'
     host=urlparse(str(url)).hostname or ''
     return next((key for domain,key in [('paper-api.alpaca.markets','alpaca'),('data.alpaca.markets','alpaca'),('api.openai.com','openai'),('openrouter.ai','openrouter'),
         ('twelvedata.com','twelvedata'),('gnews.io','gnews'),('stlouisfed.org','fred'),

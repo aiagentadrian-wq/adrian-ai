@@ -218,6 +218,7 @@ def csrf(req):
     auth(req)
     if not hmac.compare_digest(req.headers.get('x-csrf-token',''),req.cookies.get('acc_csrf','')): raise HTTPException(403,'Invalid CSRF token')
 def safe_url(url):
+    if url.rstrip('/')=='http://127.0.0.1:11434/v1':return 'http://127.0.0.1:11434/v1'
     p=urlparse(url)
     if p.scheme!='https' or not p.hostname or p.username or p.password: raise HTTPException(400,'Use a valid HTTPS API URL')
     # Restrict provider endpoints to explicitly supported cloud providers; no arbitrary SSRF targets.
