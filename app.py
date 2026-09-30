@@ -533,7 +533,7 @@ async def chat(body:ChatIn,req:Request):
                     record_action('run_real_job_pipeline',output.get('status','blocked'),str(output)[:800])
                 elif name=='send_email_to_owner':
                     # Defense in depth: a model cannot send unless the current user request explicitly authorizes it.
-                    explicit=bool(re.search(r'\b(send|email|e-mail|mail|resend)\b',body.message,re.I)) and not bool(re.search(r'\b(don.t send|do not send|draft only|without sending)\b',body.message,re.I))
+                    explicit=email_send_authorized(body.message)
                     subject=args.get('subject'); mail_body=args.get('body')
                     if not explicit: output={'error':'No explicit send-email authorization in the current user message. Ask Adrian for approval.'}; record_action('send_email_to_owner','blocked','No explicit authorization')
                     elif not isinstance(subject,str) or not isinstance(mail_body,str) or not (1<=len(subject)<=180 and 1<=len(mail_body)<=12000): output={'error':'Invalid email subject or body.'}; record_action('send_email_to_owner','blocked','Invalid subject or body')
