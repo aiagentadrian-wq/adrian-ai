@@ -72,6 +72,12 @@ class Engine:
     def secret(self,name):
         value=self.config().get(name)
         return self.cipher.decrypt(value.encode()).decode() if value else ''
+    def capabilities(self):
+        s=self.config()
+        with self.db() as c:
+            exists=c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='service_health'").fetchone()
+            health=dict(c.execute("SELECT status,checked,detail FROM service_health WHERE service='alpaca'").fetchone() or {}) if exists else {}
+        return {'mode':'PAPER ONLY','broker':'Alpaca','keys_saved':bool(s.get('key') and s.get('secret')),'last_actual_connection_check':health,'gmail_approval_enabled':bool(s.get('approval_enabled')),'entry_workflow':'Find & email a paper proposal, then reply YES in its exact thread before expiry. Execution rechecks fresh data, risk and market-open status.','exit_workflow':'Approved limit-entry bracket includes broker-managed stop-loss and take-profit exits activated after entry fill. These exits need no second approval.','chat_can_submit_orders':False,'real_money_supported':False,'journal':[{k:v for k,v in x.items() if k!='plan'} for x in self.summary()['proposals'][:5]]}
     async def broker(self,path,method='GET',payload=None):
         # Base URL is a constant: no setting or model can switch to live trading.
         key,secret=self.secret('key'),self.secret('secret')
@@ -127,12 +133,12 @@ class Engine:
     def update(self,id,status,detail,broker_id=None):
         with self.db() as c:c.execute('UPDATE paper_proposals SET status=?,detail=?,broker_id=COALESCE(?,broker_id) WHERE id=?',(status,detail,broker_id,id))
         self.event('Day Trader','paper '+status,detail[:180])
-    async def propose(self):
+    async def propose(self,query='Compare candidates'):
         import trading_chat_bridge as bridge
         import trading_guard
         if not self.config().get('approval_enabled'):raise HTTPException(400,'Enable Gmail approval monitoring first.')
         if 'last_uid' not in self.config():await self.poll()
-        evidence=await bridge.research('Compare candidates',self.db)
+        evidence=await bridge.research(query,self.db)
         ranked=evidence.get('ranking',[])
         if not ranked:return {'status':'no_trade','reason':'No candidate has sufficient research evidence.'}
         candidate=next(x for x in evidence['results'] if x['symbol']==ranked[0]['symbol'])
@@ -283,6 +289,8 @@ class Engine:
 def install(app,db,cipher,auth,csrf,send,event,model_call):
     global APP
     engine=Engine(db,cipher,send,event,model_call);APP=engine
+    with db() as c:
+        c.execute("UPDATE agents SET description=? WHERE name='Day Trader' AND description IN (?,?)",('Market research and approval-based Alpaca paper entries with broker-managed stop/target exits.','Research-only market analyst.','Research-only market analyst; examines supplied market data and trading setups.'))
     @app.get('/paper.js')
     def javascript():return FileResponse(Path(__file__).parent/'static'/'paper.js',media_type='text/javascript')
     @app.get('/api/paper/settings')

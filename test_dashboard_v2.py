@@ -7,7 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch,AsyncMock
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
@@ -48,6 +48,27 @@ class DashboardTests(unittest.TestCase):
         self.client.post('/api/paper/settings',json={'owner':'paper-owner@gmail.com'},headers=self.headers)
         self.assertTrue(self.client.get('/api/paper/settings').json()['secret_saved'])
         with self.app.db() as c:c.execute('DELETE FROM paper_settings')
+    def test_chat_emails_proposal_without_claiming_order(self):
+        with self.app.db() as c:
+            c.execute('INSERT INTO providers(name,base_url,model,secret,created) VALUES(?,?,?,?,?)',('paper-chat-test','https://api.openai.com/v1','test',self.app.CIPHER.encrypt(b'test'),self.app.now()))
+        try:
+            with patch.object(self.app.paper_trading.APP,'propose',new=AsyncMock(return_value={'status':'pending','expires':'future'})) as proposed:
+                r=self.client.post('/api/chat',headers=self.headers,json={'message':'Email me a paper trade proposal for MSFT','agent_id':2})
+                self.assertEqual(r.status_code,200);proposed.assert_awaited_once_with('Email me a paper trade proposal for MSFT')
+                self.assertIn('No order has been placed',r.json()['answer']);self.assertIn('stop/target exits',r.json()['answer'])
+        finally:
+            with self.app.db() as c:c.execute("DELETE FROM providers WHERE name='paper-chat-test'")
+    def test_day_trader_receives_actual_paper_capabilities(self):
+        with self.app.db() as c:c.execute('INSERT INTO providers(name,base_url,model,secret,created) VALUES(?,?,?,?,?)',('paper-chat-test','https://api.openai.com/v1','test',self.app.CIPHER.encrypt(b'test'),self.app.now()))
+        try:
+            with patch.object(self.app.trading_chat_bridge,'research',new=AsyncMock(return_value={'ranking':[],'results':[]})),patch.object(self.app,'model_call',new=AsyncMock(return_value={'choices':[{'message':{'content':'Paper approval required.'}}]})) as model:
+                r=self.client.post('/api/chat',headers=self.headers,json={'message':'Explain your broker connection and automatic stop/target exits.','agent_id':2})
+                self.assertEqual(r.status_code,200)
+                messages=model.call_args.args[1]
+                self.assertIn('paper_connection',messages[-1]['content']);self.assertIn('Alpaca',messages[-1]['content'])
+                self.assertIn('stop-loss',messages[-1]['content']);self.assertIn('Do not claim no broker exists',messages[0]['content'])
+        finally:
+            with self.app.db() as c:c.execute("DELETE FROM providers WHERE name='paper-chat-test'")
 
     def test_real_service_statuses(self):
         self.core.observe('boc','verified','successful response')

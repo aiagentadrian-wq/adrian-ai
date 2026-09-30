@@ -422,6 +422,14 @@ async def chat(body:ChatIn,req:Request):
     if not provider: return {'answer':'No AI provider connected yet. Go to API Center and add an OpenAI or OpenRouter key.','model':'not connected'}
     history=recent_messages(agent['id']); remember(agent['id'],'user',body.message)
     learned=memory_context(body.message)
+    if agent['name'] in ('Manager','Day Trader') and re.search(r'(?is)\b(?:email|send)\b.*\b(?:paper.*trade|trade.*proposal|paper.*proposal)\b',body.message) and not re.search(r'(?i)\b(?:do not send|don.t send|draft only|without sending)\b',body.message):
+        try:
+            async with paper_trading.APP.lock:output=await paper_trading.APP.propose(body.message)
+            answer=('Paper proposal emailed. Reply YES in that exact email before '+output['expires']+' to authorize the entry and broker-managed stop/target exits. No order has been placed yet.' if output['status']=='pending' else 'No paper order placed. '+output.get('reason','No qualifying proposal.'))
+        except HTTPException as e:answer='No paper order placed. '+str(e.detail)
+        remember(agent['id'],'assistant',answer)
+        event(agent['name'],'paper proposal request',answer[:180])
+        return {'answer':answer,'model':'paper approval workflow','usage':{}}
     if agent['name']!='Manager':
         system=writer_instructions() if agent['name']=='Writer' else agent['prompt']+'\nUser-approved long-term memories (may be outdated; current instructions override):\n'+learned+'\nYou have no independent browsing, PC control, email or market-feed tools. The Manager may supply sourced web research. Do not claim external actions occurred.'
         if agent['name']=='Job Finder' and job_email_authorized(body.message):
@@ -431,6 +439,7 @@ async def chat(body:ChatIn,req:Request):
             usage={}
         elif agent['name']=='Day Trader':
             evidence=await trading_chat_bridge.research(body.message,db)
+            evidence['paper_connection']=paper_trading.APP.capabilities()
             if trading_chat_bridge.daily_decision(body.message):
                 answer=trading_chat_bridge.briefing(evidence);usage={}
             else:
@@ -462,6 +471,7 @@ async def chat(body:ChatIn,req:Request):
     market_question=bool(re.search(r'\b(invest|investing|stock|stocks|ticker|shares|trading|trade setup|market outlook|portfolio|day trad|swing trad|what should i buy|best trade)\b',body.message,re.I))
     if market_question:
         evidence=await trading_chat_bridge.research(body.message,db)
+        evidence['paper_connection']=paper_trading.APP.capabilities()
         market_messages=[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nYou are ADRIAN.AI Manager presenting your Day Trader research.'}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}]
         if trading_chat_bridge.daily_decision(body.message):
             answer=trading_chat_bridge.briefing(evidence);market_result={}
@@ -521,6 +531,7 @@ async def chat(body:ChatIn,req:Request):
                         try:
                             if target['name']=='Day Trader':
                                 evidence=await trading_chat_bridge.research(task,db)
+                                evidence['paper_connection']=paper_trading.APP.capabilities()
                                 sub=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nShared preferences:\n'+memory_context(task)},{'role':'user','content':'REQUEST: '+task[:12000]+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
                                 specialist_result=sub['choices'][0]['message'].get('content') or ''
                             elif target['name']=='Writer':
