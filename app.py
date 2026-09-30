@@ -75,12 +75,16 @@ def writer_flags(draft):
     return [phrase for phrase in WRITER_CLICHES if phrase in draft.lower()]
 
 async def writer_generate(provider, request, history=None, details=False):
-    """Generate, get a specific style critique, rewrite, and check remaining stock phrases."""
+    """Generate with Writer's assigned model, then critique/rewrite against saved style evidence."""
+    with db() as c:
+        writer=c.execute("SELECT model FROM agents WHERE name='Writer' AND enabled=1 ORDER BY id LIMIT 1").fetchone()
+    writer_model=(writer['model'].strip() if writer and writer['model'] else 'default')
+    model_override=None if writer_model.lower()=='default' else writer_model
     system=writer_instructions()
     messages=[{'role':'system','content':system}]
     if history: messages.extend(history)
     messages.append({'role':'user','content':request})
-    first=await model_call(provider,messages)
+    first=await model_call(provider,messages,model_override=model_override)
     initial=(first['choices'][0]['message'].get('content') or '').strip()
     if not initial: raise HTTPException(502,'Writer returned an empty first draft')
     initial_flags=writer_flags(initial)
@@ -92,7 +96,7 @@ async def writer_generate(provider, request, history=None, details=False):
         'the writing samples. Check the forbidden phrases supplied below. Keep the task requirements. '
         'Return concise plain text review notes, not the rewritten draft.\n\n'
         'ORIGINAL REQUEST:\n'+request+'\n\nFIRST DRAFT:\n'+initial+'\n\nDETECTED STOCK PHRASES:\n'+(', '.join(initial_flags) or 'None from fixed list'))
-    review_result=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':critique_prompt}])
+    review_result=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':critique_prompt}],model_override=model_override)
     review=(review_result['choices'][0]['message'].get('content') or '').strip()
     if not review: review='Review unavailable; apply the saved corrections and remove stock phrases.'
     revision_prompt=(
@@ -103,7 +107,7 @@ async def writer_generate(provider, request, history=None, details=False):
         'these stock phrases: '+', '.join(WRITER_CLICHES)+'. Do not swap them for equally inflated synonyms. '
         'Output ONLY the complete rewritten draft.\n\nORIGINAL REQUEST:\n'+request+
         '\n\nFIRST DRAFT:\n'+initial+'\n\nSPECIFIC STYLE REVIEW:\n'+review)
-    revised=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':revision_prompt}])
+    revised=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':revision_prompt}],model_override=model_override)
     final=(revised['choices'][0]['message'].get('content') or '').strip()
     if not final: raise HTTPException(502,'Writer returned an empty revised draft')
     final_flags=writer_flags(final)
@@ -264,9 +268,9 @@ def remove_provider(pid:int,req:Request):
     with db() as c:c.execute('DELETE FROM providers WHERE id=?',(pid,))
     event('System','provider removed',str(pid)); return {'ok':True}
 class ChatIn(BaseModel): message:str=Field(min_length=1,max_length=12000); agent_id:int=1
-async def model_call(provider, messages, tools=None):
+async def model_call(provider, messages, tools=None, model_override=None):
     key=CIPHER.decrypt(provider['secret']).decode()
-    payload={'model':provider['model'],'messages':messages,'max_tokens':1400}
+    payload={'model':model_override or provider['model'],'messages':messages,'max_tokens':1400}
     if tools: payload['tools']=tools; payload['tool_choice']='auto'
     try:
         async with httpx.AsyncClient(timeout=60) as client:
