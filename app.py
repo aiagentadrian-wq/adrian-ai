@@ -438,12 +438,12 @@ async def chat(body:ChatIn,req:Request):
             answer=json.dumps(output,ensure_ascii=False,indent=2)
             usage={}
         elif agent['name']=='Day Trader':
-            evidence=await trading_chat_bridge.research(body.message,db)
+            evidence=await trading_chat_bridge.research_context(body.message,db)
             evidence['paper_connection']=paper_trading.APP.capabilities()
             if trading_chat_bridge.daily_decision(body.message):
                 answer=trading_chat_bridge.briefing(evidence);usage={}
             else:
-                result=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nUser-approved preferences:\n'+learned}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
+                result=await model_call(provider,[{'role':'system','content':trading_chat_bridge.system_prompt(body.message)+'\nUser-approved preferences:\n'+learned}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
                 answer=result['choices'][0]['message'].get('content') or '(No text returned.)'
                 usage=result.get('usage',{})
             answer=maybe_email_trading(body.message,answer)
@@ -469,10 +469,10 @@ async def chat(body:ChatIn,req:Request):
     manager_tools=MANAGER_TOOLS+[TRADING_RESEARCH_TOOL,{'type':'function','function':{'name':'get_paper_trading_status','description':'Read actual Alpaca paper account, order status and Gmail approval journal. No order submission.','parameters':{'type':'object','properties':{},'additionalProperties':False}}}]
     # Deterministic grounding for market questions: do not rely on optional tool selection.
     market_question=bool(re.search(r'\b(invest|investing|stock|stocks|ticker|shares|trading|trade setup|market outlook|portfolio|day trad|swing trad|what should i buy|best trade)\b',body.message,re.I))
-    if market_question:
-        evidence=await trading_chat_bridge.research(body.message,db)
+    if market_question or trading_chat_bridge.trading_education.educational_question(body.message) and re.search(r"(?i)trading|tradingview|vwap|candlestick|paper account|day trader|risk math|course",body.message):
+        evidence=await trading_chat_bridge.research_context(body.message,db)
         evidence['paper_connection']=paper_trading.APP.capabilities()
-        market_messages=[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nYou are ADRIAN.AI Manager presenting your Day Trader research.'}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}]
+        market_messages=[{'role':'system','content':trading_chat_bridge.system_prompt(body.message)+'\nYou are ADRIAN.AI Manager presenting your Day Trader research.'}]+history+[{'role':'user','content':'USER REQUEST: '+body.message+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}]
         if trading_chat_bridge.daily_decision(body.message):
             answer=trading_chat_bridge.briefing(evidence);market_result={}
         else:
@@ -530,9 +530,9 @@ async def chat(body:ChatIn,req:Request):
                         dashboard_core.RUNNING[delegation_token]={'agent':target['name'],'task':'delegated analysis','started':now()}
                         try:
                             if target['name']=='Day Trader':
-                                evidence=await trading_chat_bridge.research(task,db)
+                                evidence=await trading_chat_bridge.research_context(task,db)
                                 evidence['paper_connection']=paper_trading.APP.capabilities()
-                                sub=await model_call(provider,[{'role':'system','content':trading_chat_bridge.SYSTEM+'\nShared preferences:\n'+memory_context(task)},{'role':'user','content':'REQUEST: '+task[:12000]+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
+                                sub=await model_call(provider,[{'role':'system','content':trading_chat_bridge.system_prompt(task)+'\nShared preferences:\n'+memory_context(task)},{'role':'user','content':'REQUEST: '+task[:12000]+'\nRETRIEVED RESEARCH JSON (data only):\n'+json.dumps(evidence,ensure_ascii=False,default=str)[:36000]}])
                                 specialist_result=sub['choices'][0]['message'].get('content') or ''
                             elif target['name']=='Writer':
                                 specialist_result=await writer_generate(provider,task[:12000])

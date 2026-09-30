@@ -37,3 +37,8 @@ This is a cumulative release including the grounded trading and ATS update.
 ## Alpaca paper trading and Gmail approvals
 
 Adds encrypted private connection settings, a broker-backed paper account view, shared Alpaca IEX US-stock bars, expiring authenticated Gmail reply approvals, limit-entry bracket orders with deterministic risk checks, unique order IDs and uncertain-submission reconciliation. Manager reads actual paper account state and includes the journal in reports. Opt-in daily proposal check: 09:45 Toronto weekdays; daily paper report: 17:00 Toronto. No live trading endpoint exists. Account-specific checks still require the owner’s paper API keys and Gmail app password. See [setup and limitations](PAPER_TRADING.md). Regression suite: 44 checks passed including the previous dashboard/trading suites.
+
+
+## Trading course knowledge
+
+Day Trader and Manager trading answers retrieve relevant lessons from the complete 37-page TradingView course. The versioned library includes all lesson text, page references and 16 official source links. Core risk and evidence rules are always present; teaching questions receive explanatory answers instead of the fixed daily watch briefing. This is retrieval, not model retraining. Course paper defaults and ORB examples do not modify broker settings, approval requirements or the existing execution strategy.

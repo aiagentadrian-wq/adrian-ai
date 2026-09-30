@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 
-FILES=['paper_trading.py','test_paper_trading.py','PAPER_TRADING.md','trading_guard.py','test_trading_guard.py','TRADING_VALIDATION.md','app.py','dashboard_core.py','ai_adapter.py','adrian_intelligence.py','job_manager_bridge.py',
+FILES=['trading_education.py','trading_course_knowledge.json','test_trading_education.py','paper_trading.py','test_paper_trading.py','PAPER_TRADING.md','trading_guard.py','test_trading_guard.py','TRADING_VALIDATION.md','app.py','dashboard_core.py','ai_adapter.py','adrian_intelligence.py','job_manager_bridge.py',
        'job_v7.py','job_v7_discovery.py','job_v7_email.py','job_v7_packages.py','job_v7_radar.py','job_v7_schedule.py',
        'resume_test_email.py','trading_chat_bridge.py','trading_company_directory.py','trading_division.py','trading_lab.py','trading_monitor.py',
        'static/paper.js','static/index.html','static/dashboard.js','static/dashboard.css','static/a5-crown.svg','static/manifest.webmanifest','static/sw.js',
