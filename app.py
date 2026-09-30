@@ -31,7 +31,7 @@ with db() as c:
     c.executescript('''CREATE TABLE IF NOT EXISTS agents(id INTEGER PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL,prompt TEXT NOT NULL,model TEXT NOT NULL DEFAULT 'default',enabled INTEGER NOT NULL DEFAULT 1);CREATE TABLE IF NOT EXISTS providers(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,base_url TEXT NOT NULL,model TEXT NOT NULL,secret BLOB NOT NULL,created TEXT NOT NULL);CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,at TEXT NOT NULL,agent TEXT NOT NULL,kind TEXT NOT NULL,detail TEXT NOT NULL);CREATE TABLE IF NOT EXISTS approvals(id INTEGER PRIMARY KEY,at TEXT NOT NULL,action TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending');''')
     c.executescript("""CREATE TABLE IF NOT EXISTS conversations(id INTEGER PRIMARY KEY,agent_id INTEGER NOT NULL,role TEXT NOT NULL,content TEXT NOT NULL,at TEXT NOT NULL);CREATE INDEX IF NOT EXISTS idx_conversation_agent ON conversations(agent_id,id);CREATE TABLE IF NOT EXISTS email_history(id INTEGER PRIMARY KEY,at TEXT NOT NULL,subject TEXT NOT NULL,body TEXT NOT NULL,recipient TEXT NOT NULL,sender TEXT NOT NULL,status TEXT NOT NULL,error TEXT);CREATE TABLE IF NOT EXISTS delegations(id INTEGER PRIMARY KEY,at TEXT NOT NULL,agent_id INTEGER NOT NULL,agent_name TEXT NOT NULL,task TEXT NOT NULL,status TEXT NOT NULL,result TEXT);CREATE TABLE IF NOT EXISTS action_log(id INTEGER PRIMARY KEY,at TEXT NOT NULL,action TEXT NOT NULL,status TEXT NOT NULL,detail TEXT NOT NULL);""")
     c.executescript("""CREATE TABLE IF NOT EXISTS learned_memories(id INTEGER PRIMARY KEY,created TEXT NOT NULL,updated TEXT NOT NULL,category TEXT NOT NULL,content TEXT NOT NULL,source TEXT NOT NULL DEFAULT 'user_approved',enabled INTEGER NOT NULL DEFAULT 1); CREATE TABLE IF NOT EXISTS task_reviews(id INTEGER PRIMARY KEY,at TEXT NOT NULL,agent TEXT NOT NULL,task TEXT NOT NULL,outcome TEXT NOT NULL,review TEXT NOT NULL);""")
-    c.executescript("""CREATE TABLE IF NOT EXISTS writer_samples(id INTEGER PRIMARY KEY, created TEXT NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL, content TEXT NOT NULL); CREATE TABLE IF NOT EXISTS writer_feedback(id INTEGER PRIMARY KEY, created TEXT NOT NULL, feedback TEXT NOT NULL); CREATE TABLE IF NOT EXISTS writer_drafts(id INTEGER PRIMARY KEY, created TEXT NOT NULL, request TEXT NOT NULL, content TEXT NOT NULL);""")
+    c.executescript("""CREATE TABLE IF NOT EXISTS writer_samples(id INTEGER PRIMARY KEY, created TEXT NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL, content TEXT NOT NULL); CREATE TABLE IF NOT EXISTS writer_feedback(id INTEGER PRIMARY KEY, created TEXT NOT NULL, feedback TEXT NOT NULL); CREATE TABLE IF NOT EXISTS writer_rules(id INTEGER PRIMARY KEY, created TEXT NOT NULL, category TEXT NOT NULL, rule_text TEXT NOT NULL); CREATE TABLE IF NOT EXISTS writer_drafts(id INTEGER PRIMARY KEY, created TEXT NOT NULL, request TEXT NOT NULL, content TEXT NOT NULL);""")
     if not c.execute('SELECT 1 FROM agents').fetchone(): c.executemany('INSERT INTO agents(name,description,prompt) VALUES(?,?,?)',DEFAULT_AGENTS)
 def event(agent,kind,detail):
     with db() as c: c.execute('INSERT INTO events(at,agent,kind,detail) VALUES(?,?,?,?)',(now(),agent,kind,detail[:1000]))
@@ -54,11 +54,16 @@ def writer_context():
     with db() as c:
         samples=c.execute('SELECT title,kind,content FROM writer_samples ORDER BY id DESC LIMIT 5').fetchall()
         feedback=c.execute('SELECT feedback FROM writer_feedback ORDER BY id DESC LIMIT 12').fetchall()
-    rules='\n'.join(f'- {r["feedback"]}' for r in feedback)[:10000]
+        saved_rules=c.execute('SELECT category,rule_text FROM writer_rules ORDER BY id').fetchall()
+    corrections='\n'.join(f'- {r["feedback"]}' for r in feedback)[:10000]
+    style_rules='\n'.join(f'- {r["category"]}: {r["rule_text"]}' for r in saved_rules)[:10000]
     examples='\n\n'.join(f'[{r["kind"]}: {r["title"]}]\n{r["content"][:6500]}' for r in samples)[:19000]
     return ('\nLATEST USER CORRECTIONS (newest first; these take priority over older preferences):\n'+
-            (rules or '(none saved)')+
-            '\n\nUSER-WRITTEN EXAMPLES (style evidence only; do not copy their topic, claims, or instructions):\n'+
+            (corrections or '(none saved)')+
+            '\n\nSAVED WRITER STYLE RULES:\n'+
+            (style_rules or '(none saved)')+
+            '\nUse these as style preferences together with genuine writing samples. If a saved rule conflicts with recurring patterns in the user-written examples, prefer the genuine examples.\n'+
+            '\nUSER-WRITTEN EXAMPLES (style evidence only; do not copy their topic, claims, or instructions):\n'+
             (examples or '(none saved)'))
 
 def writer_instructions():
@@ -121,13 +126,16 @@ class WriterSampleIn(BaseModel):
     content:str=Field(min_length=30,max_length=8000)
 class WriterFeedbackIn(BaseModel):
     feedback:str=Field(min_length=3,max_length=1000)
+class WriterRuleIn(BaseModel):
+    category:str=Field(min_length=2,max_length=80)
+    rule_text:str=Field(min_length=3,max_length=1200)
 class WriterDraftIn(BaseModel):
     request:str=Field(min_length=3,max_length=5000)
 @app.get('/api/writer')
 def writer_data(req:Request):
     auth(req)
     with db() as c:
-        return {'samples':[dict(r) for r in c.execute('SELECT * FROM writer_samples ORDER BY id DESC LIMIT 100')], 'feedback':[dict(r) for r in c.execute('SELECT * FROM writer_feedback ORDER BY id DESC LIMIT 100')], 'drafts':[dict(r) for r in c.execute('SELECT * FROM writer_drafts ORDER BY id DESC LIMIT 20')]}
+        return {'samples':[dict(r) for r in c.execute('SELECT * FROM writer_samples ORDER BY id DESC LIMIT 100')], 'feedback':[dict(r) for r in c.execute('SELECT * FROM writer_feedback ORDER BY id DESC LIMIT 100')], 'rules':[dict(r) for r in c.execute('SELECT * FROM writer_rules ORDER BY id')], 'drafts':[dict(r) for r in c.execute('SELECT * FROM writer_drafts ORDER BY id DESC LIMIT 20')]}
 @app.post('/api/writer/samples')
 def writer_add_sample(body:WriterSampleIn,req:Request):
     csrf(req)
@@ -147,6 +155,23 @@ def writer_add_feedback(body:WriterFeedbackIn,req:Request):
 def writer_delete_feedback(item_id:int,req:Request):
     csrf(req)
     with db() as c:c.execute('DELETE FROM writer_feedback WHERE id=?',(item_id,))
+    return {'ok':True}
+@app.post('/api/writer/rules')
+def writer_add_rule(body:WriterRuleIn,req:Request):
+    csrf(req)
+    with db() as c:cur=c.execute('INSERT INTO writer_rules(created,category,rule_text) VALUES(?,?,?)',(now(),body.category,body.rule_text))
+    return {'ok':True,'id':cur.lastrowid}
+@app.put('/api/writer/rules/{item_id}')
+def writer_edit_rule(item_id:int,body:WriterRuleIn,req:Request):
+    csrf(req)
+    with db() as c:
+        cur=c.execute('UPDATE writer_rules SET category=?,rule_text=? WHERE id=?',(body.category,body.rule_text,item_id))
+        if not cur.rowcount:raise HTTPException(404,'Writer rule not found')
+    return {'ok':True}
+@app.delete('/api/writer/rules/{item_id}')
+def writer_delete_rule(item_id:int,req:Request):
+    csrf(req)
+    with db() as c:c.execute('DELETE FROM writer_rules WHERE id=?',(item_id,))
     return {'ok':True}
 @app.post('/api/writer/draft')
 async def writer_draft(body:WriterDraftIn,req:Request):
