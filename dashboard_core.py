@@ -359,6 +359,9 @@ def install(app, root, db, auth, csrf, now, cipher):
         with db() as c:
             if not c.execute('SELECT id FROM job_v7_postings WHERE id=?',(posting_id,)).fetchone():raise HTTPException(404,'Posting not found')
             c.execute('INSERT INTO application_progress VALUES(?,?,?) ON CONFLICT(posting_id) DO UPDATE SET stage=excluded.stage,updated=excluded.updated',(posting_id,body.stage,now()))
+        if body.stage in ('saved','applied'):
+            with db() as c:job=dict(c.execute('SELECT * FROM job_v7_postings WHERE id=?',(posting_id,)).fetchone())
+            __import__('local_learning').record_job(db,job,'applied' if body.stage=='applied' else 'save')
         return {'ok':True,'stage':body.stage,'note':'User recorded status; no application was submitted by the app.'}
 
     class EditedDraft(BaseModel):content:str=Field(min_length=1,max_length=50000)

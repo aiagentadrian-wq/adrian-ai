@@ -1,7 +1,28 @@
 """Responses adapter preserving the application's established tool interface."""
-import json
+import json,asyncio,copy,os
 import httpx
 from fastapi import HTTPException
+
+LOCAL_LOCK=asyncio.Lock()
+def local_messages(messages):
+    """Preserve task/rubric and system evidence; drop old turns before truncation."""
+    local=[]
+    for m in messages:
+        v=copy.deepcopy({k:val for k,val in m.items() if not k.startswith('_')})
+        for call in v.get('tool_calls',[]):
+            args=call.get('function',{}).get('arguments')
+            if isinstance(args,str):
+                try:call['function']['arguments']=json.loads(args)
+                except ValueError:raise HTTPException(400,'Invalid local tool arguments')
+        local.append(v)
+    budget=24000
+    while len(json.dumps(local,ensure_ascii=False))>budget and len(local)>2:
+        # Remove a whole old user/assistant/tool exchange, never half a tool call.
+        next_user=next((i for i in range(2,len(local)) if local[i].get('role')=='user'),len(local)-1)
+        local=local[:1]+local[next_user:]
+    if len(json.dumps(local,ensure_ascii=False))>budget:
+        raise HTTPException(400,'This request exceeds the local model context budget. Shorten the pasted material or split the task; the rubric and samples were not silently cut off.')
+    return local
 
 def response_input(messages):
     items=[]
@@ -34,22 +55,21 @@ async def call(provider,messages,key,tools=None,max_tokens=1400):
     model=provider['model']
     if provider['base_url'].rstrip('/')=='http://127.0.0.1:11434/v1':
         # Exact loopback only. No paid fallback and no hidden desktop/shell access.
-        local=[]
-        for m in messages:
-            v={k:val for k,val in m.items() if not k.startswith('_')}
-            if isinstance(v.get('content'),str):
-                limit=4500 if v.get('role')=='system' else 9000 if m is messages[-1] else 500
-                if len(v['content'])>limit:v['content']=v['content'][:limit]+' [truncated; request focused evidence if needed]'
-            for call in v.get('tool_calls',[]):
-                if isinstance(call.get('function',{}).get('arguments'),str):
-                    call['function']=dict(call['function'],arguments=json.loads(call['function']['arguments']))
-            local.append(v)
-        payload={'model':model,'messages':local,'stream':False,'think':False,'options':{'num_ctx':8192,'num_predict':min(max_tokens,1400),'temperature':0.2},'keep_alive':'15m'}
+        local=local_messages(messages)
+        writer=any('voice-matching writing assistant' in str(m.get('content','')) for m in local[:1])
+        # This PC's GPU supports 8K context; 16K exhausted Vulkan memory.
+        # Reserve context for output using a conservative UTF-8 size estimate.
+        estimated_prompt=(len(json.dumps(local,ensure_ascii=False).encode('utf-8'))+2)//3
+        output_budget=min(max_tokens,3500,max(256,8192-estimated_prompt-512))
+        gpu_layers=int(os.getenv('LOCAL_AI_GPU_LAYERS','24'))
+        payload={'model':model,'messages':local,'stream':False,'think':False,'options':{'num_ctx':8192,'num_gpu':gpu_layers,'num_batch':128,'num_predict':output_budget,'temperature':0.4 if writer else 0.15},'keep_alive':'15m'}
         if tools:payload['tools']=tools
         try:
-            async with httpx.AsyncClient(timeout=180) as client:r=await client.post('http://127.0.0.1:11434/api/chat',json=payload)
+            async with LOCAL_LOCK:
+                async with httpx.AsyncClient(timeout=360) as client:r=await client.post('http://127.0.0.1:11434/api/chat',json=payload)
             if r.status_code>=400:raise HTTPException(502,'Local AI unavailable (HTTP '+str(r.status_code)+'). Check Ollama and installed model; no paid fallback was used.')
             data=r.json();message=data['message']
+            if data.get('done_reason')=='length':raise HTTPException(502,'Local AI reached its output limit. Request a shorter draft or one section at a time; no incomplete draft was saved.')
             for i,call in enumerate(message.get('tool_calls',[])):
                 call.setdefault('id','local-'+str(i));call.setdefault('type','function')
                 if not isinstance(call['function'].get('arguments'),str):call['function']['arguments']=json.dumps(call['function'].get('arguments',{}))

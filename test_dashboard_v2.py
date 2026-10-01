@@ -29,6 +29,49 @@ class DashboardTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.client.close();cls.env.stop();sys.path.pop(0);cls.temp.cleanup()
 
+    def test_writer_chat_saves_current_draft_and_emails_once(self):
+        from unittest.mock import Mock
+        with self.app.db() as c:c.execute('INSERT INTO providers(name,base_url,model,secret,created) VALUES(?,?,?,?,?)',('writer-local-test','http://127.0.0.1:11434/v1','test',self.app.CIPHER.encrypt(b'local'),self.app.now()))
+        try:
+            with patch.object(self.app,'writer_generate',new=AsyncMock(return_value='Current truthful draft.')),patch.object(self.app,'send_owner_email',new=Mock(return_value={'status':'accepted_by_smtp'})) as send:
+                first=self.client.post('/api/chat',headers=self.headers,json={'agent_id':4,'message':'Write a short draft.'});self.assertEqual(first.status_code,200)
+                for _ in range(2):self.assertEqual(self.client.post('/api/chat',headers=self.headers,json={'agent_id':4,'message':'Email that to me please'}).status_code,200)
+                send.assert_called_once_with('ADRIAN.AI - Your saved writing draft','Current truthful draft.')
+        finally:
+            with self.app.db() as c:c.execute("DELETE FROM providers WHERE name='writer-local-test'")
+    def test_writer_repairs_word_count_and_reports_actual_length(self):
+        def result(text):return {'choices':[{'message':{'content':text}}]}
+        with patch.object(self.app,'model_call',new=AsyncMock(side_effect=[result('short draft'),result('keep the facts'),result('short revised draft'),result(' '.join(['word']*100))])) as model:
+            import asyncio
+            draft,report=asyncio.run(self.app.writer_generate({'model':'test'},'Write 90 to 120 words on supplied facts.',details=True))
+            self.assertTrue(report['length_met']);self.assertEqual(report['word_count'],100);self.assertEqual(model.await_count,4)
+    def test_writer_uses_its_assigned_local_model(self):
+        import asyncio,ai_adapter
+        with self.app.db() as c:
+            original=c.execute("SELECT model FROM agents WHERE name='Writer'").fetchone()[0]
+            c.execute("UPDATE agents SET model='adrian-writer' WHERE name='Writer'")
+        try:
+            provider={'base_url':'http://127.0.0.1:11434/v1','model':'adrian-agent','secret':self.app.CIPHER.encrypt(b'local')}
+            with patch.object(ai_adapter,'call',new=AsyncMock(return_value={})) as call:
+                asyncio.run(self.app.model_call(provider,[{'role':'system','content':'voice-matching writing assistant'}]))
+                self.assertEqual(call.call_args.args[0]['model'],'adrian-writer')
+        finally:
+            with self.app.db() as c:c.execute("UPDATE agents SET model=? WHERE name='Writer'",(original,))
+    def test_local_job_chat_uses_connected_feeds_without_paid_ai(self):
+        from unittest.mock import Mock
+        with self.app.db() as c:c.execute('INSERT INTO providers(name,base_url,model,secret,created) VALUES(?,?,?,?,?)',('jobs-local-test','http://127.0.0.1:11434/v1','test',self.app.CIPHER.encrypt(b'local'),self.app.now()))
+        try:
+            with patch('job_v7_discovery.discover',return_value={'new':0,'errors':['source failed']}),patch.object(self.app.adrian_intelligence,'recommendations',return_value={'jobs':[]}),patch.object(self.app,'job_finder_search',new=AsyncMock()) as paid:
+                r=self.client.post('/api/chat',headers=self.headers,json={'agent_id':3,'message':'Find jobs from my connected feeds'});self.assertEqual(r.status_code,200);self.assertIn('source failures',r.json()['answer']);paid.assert_not_awaited()
+        finally:
+            with self.app.db() as c:c.execute("DELETE FROM providers WHERE name='jobs-local-test'")
+    def test_local_learning_routes_require_auth_and_csrf(self):
+        with TestClient(self.app.app) as anonymous:
+            self.assertEqual(anonymous.get('/api/agents/learning/status').status_code,401)
+            self.assertEqual(anonymous.get('/api/learning/local/jobs').status_code,401)
+        self.assertEqual(self.client.post('/api/learning/local/train').status_code,403)
+        self.assertEqual(self.client.post('/api/agents/learning/settings',json={'enabled':True}).status_code,403)
+
     def test_auth_and_csrf(self):
         self.assertEqual(self.client.post('/api/swing/learned/run').status_code,403)
         self.assertEqual(self.client.post('/api/paper/settings',json={}).status_code,403)

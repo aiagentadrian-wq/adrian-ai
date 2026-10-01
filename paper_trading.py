@@ -114,6 +114,12 @@ class Engine:
         for r in rows:r['plan']=json.loads(r.pop('payload'))
         return {'mode':'PAPER ONLY','proposals':rows,'daily_runs':runs,'note':'Experimental strategy. Historical tests did not establish a profitable edge. No live orders are supported.'}
     def mail(self,subject,text,message_id=None):
+        # Approval-thread mail keeps the authenticated owner identity. Routine
+        # reports use the user's configured report inbox, not the bot login.
+        if not message_id and __import__('os').getenv('REPORT_TO'):
+            result=self.send(subject,text)
+            if result.get('status')!='accepted_by_smtp':raise HTTPException(502,'Report sender did not confirm acceptance; check Reports & Email.')
+            return result
         s=self.config();owner=s.get('owner','');pwd=self.secret('gmail_password')
         if not pwd:raise HTTPException(400,'Save a Gmail app password first. Your normal Gmail password is not used.')
         msg=EmailMessage();msg['From']=owner;msg['To']=owner;msg['Subject']=subject

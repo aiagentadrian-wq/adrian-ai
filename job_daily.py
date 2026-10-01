@@ -40,9 +40,13 @@ class Engine:
             with self.db() as c:
                 columns={r[1] for r in c.execute('PRAGMA table_info(job_v7_review)')}
                 if 'emailed' not in columns:c.execute('ALTER TABLE job_v7_review ADD COLUMN emailed INTEGER NOT NULL DEFAULT 0')
-                confirmed=[dict(r) for r in c.execute('SELECT * FROM job_v7_postings WHERE emailed=0 ORDER BY id LIMIT 5')]
-                review=[dict(r) for r in c.execute('SELECT * FROM job_v7_review WHERE emailed=0 ORDER BY found LIMIT ?',(5-len(confirmed),))]
+                confirmed=[dict(r) for r in c.execute('SELECT * FROM job_v7_postings WHERE emailed=0 ORDER BY id DESC LIMIT 250')]
+                review=[dict(r) for r in c.execute('SELECT * FROM job_v7_review WHERE emailed=0 ORDER BY found LIMIT ?',(250,))]
                 resume=c.execute('SELECT content FROM job_v7_resume ORDER BY id DESC LIMIT 1').fetchone()
+            import local_learning
+            local_learning.train_jobs(self.db)
+            confirmed=local_learning.rank_jobs(self.db,confirmed)[:5]
+            review=local_learning.rank_jobs(self.db,review)[:5-len(confirmed)]
             jobs=[dict(j,confirmed=True,reason='') for j in confirmed]+[dict(j,confirmed=False) for j in review]
             subject='ADRIAN.AI — Daily Job Finder · '+str(len(jobs))+' new jobs'
             msg,body,count=job_v7_email.build(jobs,resume['content'] if resume else '',self.now(),stats.get('errors',[]),subject=subject)

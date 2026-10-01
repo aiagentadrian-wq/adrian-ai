@@ -86,3 +86,28 @@ class ProviderFallbackTests(unittest.TestCase):
         self.assertIn('No additional order',result)
     def test_missing_state_does_not_claim_active_engine(self):
         self.assertIn('disabled or unavailable',swing.provider_fallback({},None,'HTTP 429'))
+
+class ChatEmailTests(SwingSchedulerTests):
+    async def test_explicit_email_sends_once_and_bypasses_model(self):
+        self.engine.current_trade_status=AsyncMock(return_value='3 buys, 3 sells; no current positions')
+        self.engine.paper.mail=Mock(return_value={'status':'accepted_by_smtp'})
+        first,_=await self.engine.chat('can you send that to me in an email please?',{},[], '')
+        second,_=await self.engine.chat('email that to me please',{},[], '')
+        self.assertIn('accepted',first);self.assertIn('duplicate',second)
+        self.engine.paper.mail.assert_called_once();self.engine.model_call.assert_not_awaited()
+    async def test_uncertain_send_is_not_retried_or_claimed_sent(self):
+        self.engine.current_trade_status=AsyncMock(return_value='status');self.engine.paper.mail=Mock(side_effect=TimeoutError())
+        first=await self.engine.email_chat_status();second=await self.engine.email_chat_status()
+        self.assertIn('uncertain',first);self.assertIn('unresolved',second);self.engine.paper.mail.assert_called_once()
+    async def test_trading_today_uses_status_without_llm(self):
+        self.engine.current_trade_status=AsyncMock(return_value='3 buys and 3 sells')
+        answer,_=await self.engine.chat('what are we trading today',{},[], '')
+        self.assertEqual(answer,'3 buys and 3 sells');self.engine.model_call.assert_not_awaited()
+    def test_no_positions_does_not_erase_filled_trade_history(self):
+        now=datetime(2026,9,30,16,tzinfo=timezone.utc)
+        orders=[{'symbol':'AMD','side':'buy','status':'filled','filled_at':'2026-09-30T14:30:00Z'},{'symbol':'AMD','side':'sell','status':'filled','filled_at':'2026-09-30T15:00:00Z'}]
+        answer=swing.render_trade_status({},[],orders,now)
+        self.assertIn('1 buy orders and 1 sell orders',answer);self.assertIn('positions: none',answer)
+    def test_email_questions_and_negation_do_not_send(self):
+        for text in ['How does email work?',"do not send an email",'can you not email me','what is my email address?']:
+            self.assertFalse(swing.email_requested(text))

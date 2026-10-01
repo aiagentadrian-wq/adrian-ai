@@ -87,3 +87,10 @@ Job Finder has an integrated durable daily email worker, default 09:00 Toronto w
 ## Evidence-based learning and local AI update
 
 Supersedes forced daily exploration: no-trade days, distinct post-cost candidates, $25 experimental entries in a $100 budget, separate performance promotion, immutable forward predictions, outcome-based residual learning, planned app-managed exits and an honest scorecard. Local Qwen3 8B via Ollama replaces paid chat calls in the configured installation. See [LEARNING_AND_LOCAL_AI.md](LEARNING_AND_LOCAL_AI.md) for exact gates, limits, setup and limitations.
+
+
+## Local agent learning and report routing
+
+Writer now learns a local style distribution and retrieves relevant saved samples. Job Finder uses connected feeds under Ollama, with supervised preference learning from explicit Save/Skip/Applied labels and chronological holdout checks. Local chat preserves the full current request and style context instead of silently cutting it off, serializes GPU calls, and rejects incomplete outputs.
+
+Routine trading reports use REPORT_TO; approval threads keep their authenticated Gmail owner. Daily learning reports catch up after restart and a final paper evaluation runs at the existing experiment deadline. Three learned research families at 3/5-session horizons are compared on validation; later tests and immutable forward shadow observations are reported separately. Research does not bypass production risk/promotion limits. See LOCAL_AGENT_LEARNING.md.

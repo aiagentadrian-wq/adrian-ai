@@ -59,6 +59,33 @@ class LabRequest(BaseModel):
     improve:bool=False
     parameters:dict=Field(default_factory=dict)
 
+def email_requested(message):
+    text=message.strip().lower()
+    if re.search(r"\b(don't|do not|never|not now)\b",text):return False
+    return bool(re.match(r'^(?:please\s+)?(?:(?:can|could|would|will)\s+you\s+)?(?:send\b.*\b(?:email|e-mail)\b|email\b.*\b(?:me|this|that|report|update)\b)',text))
+
+def trading_status_requested(message):
+    return bool(re.search(r'(?i)\b(what|which|any)\b.*\b(trading|trades|buying|selling)\b|\b(trading|trade)\b.*\b(today|now)\b|\b(positions?|orders?|status)\b',message))
+
+def render_trade_status(state,positions,orders,now):
+    day=now.astimezone(LOCAL).date()
+    fills=[]
+    for order in orders:
+        at=order.get('filled_at')
+        if order.get('status')=='filled' and at and datetime.fromisoformat(at.replace('Z','+00:00')).astimezone(LOCAL).date()==day:fills.append(order)
+    buys=[o for o in fills if o.get('side')=='buy'];sells=[o for o in fills if o.get('side')=='sell']
+    lines=['Paper trading update — '+str(day)+' (Toronto)',
+           'Current open positions: '+(', '.join(p['symbol'] for p in positions) if positions else 'none.'),
+           "Today's confirmed fills returned by Alpaca: "+str(len(buys))+' buy orders and '+str(len(sells))+' sell orders.']
+    if fills:lines.append('Filled activity: '+', '.join(o['symbol']+' '+o['side'] for o in fills)+'.')
+    if len(orders)>=500:lines.append('Order history reached the response limit; counts may be incomplete.')
+    lines.append('New-entry decision: '+str((state.get('daily_trade_status') or {}).get('status','No recorded learned decision available.')))
+    lines.append('No new trade was placed by this status request. Closed trades remain part of today’s history even when no positions are open.')
+    card=state.get('learning_scorecard') or {}
+    if card:lines.append('Performance strategy promoted: '+('yes' if card.get('champion') else 'none')+'. Experimental entries remain limited to $25 each within a $100 budget.')
+    lines.append('Broker checked: '+now.astimezone(LOCAL).isoformat(timespec='seconds')+'.')
+    return '\n\n'.join(lines)
+
 class Engine:
     def __init__(self,db,paper,event,model_call):
         self.db,self.paper,self.event,self.model_call=db,paper,event,model_call;self.lock=asyncio.Lock();self.calendar_cache=None
@@ -184,7 +211,34 @@ class Engine:
         with self.db() as c:
             cur=c.execute('INSERT INTO swing_experiments(at,fingerprint,payload) VALUES(?,?,?)',(stamp(),fingerprint,json.dumps(result)));result['id']=cur.lastrowid
         self.event('Swing Trader','strategy experiment',result['verdict']);return result
+    async def current_trade_status(self):
+        learned=__import__('learned_swing_bridge').APP
+        state=learned.summary() if learned else {}
+        now=utc();start=datetime.combine(now.astimezone(LOCAL).date(),datetime.min.time(),tzinfo=LOCAL).astimezone(UTC)
+        positions=await self.paper.broker('/v2/positions')
+        orders=await self.paper.broker('/v2/orders?status=all&limit=500&direction=desc&after='+start.strftime('%Y-%m-%dT%H:%M:%SZ'))
+        return render_trade_status(state,positions,orders,now)
+    async def email_chat_status(self):
+        # Explicit chat command only, saved owner recipient, persistent send claim.
+        with self.db() as c:
+            c.execute('CREATE TABLE IF NOT EXISTS swing_chat_mail(id INTEGER PRIMARY KEY,at TEXT,status TEXT,detail TEXT)')
+            recent=c.execute('SELECT * FROM swing_chat_mail ORDER BY id DESC LIMIT 1').fetchone()
+        if recent and (recent['status'] in ('sending','uncertain') or (utc()-datetime.fromisoformat(recent['at'])).total_seconds()<300):
+            if recent['status']=='accepted_by_smtp':return 'This trading update was already accepted by the email sender within the last five minutes. I did not send a duplicate. Inbox delivery is not independently confirmed.'
+            return 'The earlier email delivery is unresolved. Check your inbox before requesting a retry; I have not sent another message.'
+        body=await self.current_trade_status()
+        with self.db() as c:claim=c.execute('INSERT INTO swing_chat_mail(at,status,detail) VALUES(?,?,?)',(stamp(),'sending','Explicit owner request')).lastrowid
+        try:
+            sent=await asyncio.to_thread(self.paper.mail,'ADRIAN Swing Trader — today’s paper activity',body)
+            if sent.get('status')!='accepted_by_smtp':raise ValueError('Email acceptance not confirmed')
+        except Exception:
+            with self.db() as c:c.execute('UPDATE swing_chat_mail SET status=?,detail=? WHERE id=?',('uncertain','Sender outcome unconfirmed; no automatic retry',claim))
+            return 'I attempted the email, but the sender did not confirm acceptance. Delivery is uncertain; check your inbox and Email settings before retrying.'
+        with self.db() as c:c.execute('UPDATE swing_chat_mail SET status=?,detail=? WHERE id=?',('accepted_by_smtp','Corrected paper activity report',claim))
+        return 'Your corrected trading update was accepted by the email sender for your saved owner address. It includes current positions and today’s confirmed buys/sells. Inbox delivery is not independently confirmed.'
     async def chat(self,message,provider,history,memory):
+        if email_requested(message):return await self.email_chat_status(),{}
+        if trading_status_requested(message):return await self.current_trade_status(),{}
         result=None
         learned=__import__('learned_swing_bridge').APP
         if learned and re.search(r'(?i)\b(train|retrain|improve|test|backtest)\b',message) and re.search(r'(?i)learned|machine learning|\bml\b|raw.data|\bmodel\b',message):
