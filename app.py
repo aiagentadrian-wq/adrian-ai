@@ -71,6 +71,17 @@ WRITER_CLICHES = ('moreover', 'it is important to note', 'testament', 'delve', '
 def writer_flags(draft):
     return [phrase for phrase in WRITER_CLICHES if phrase in draft.lower()]
 
+def writer_check_sample_copy(draft, request):
+    """Reject substantial copied examples unless supplied as current task material."""
+    normalize=lambda text: ' '.join(re.findall(r'\w+',text.lower()))
+    text=normalize(draft);task=normalize(request)
+    with db() as c:
+        samples=c.execute('SELECT content FROM writer_samples').fetchall()
+    for sample in samples:
+        example=normalize(sample['content'])
+        if len(example.split())>=20 and example in text and example not in task and len(example)>=len(text)*0.5:
+            raise HTTPException(502,'The Writer repeated a saved writing sample instead of answering this assignment. No draft was saved. Try again.')
+
 async def writer_generate(provider, request, history=None, details=False):
     """Generate, get a specific style critique, rewrite, and check remaining stock phrases."""
     system=writer_instructions(request)+'\nShared user-approved preferences (current task takes priority):\n'+memory_context(request)
@@ -80,6 +91,7 @@ async def writer_generate(provider, request, history=None, details=False):
     first=await model_call(provider,messages,max_tokens=3500)
     initial=(first['choices'][0]['message'].get('content') or '').strip()
     if not initial: raise HTTPException(502,'Writer returned an empty first draft')
+    writer_check_sample_copy(initial,request)
     initial_flags=writer_flags(initial)
     critique_prompt=(
         'You are reviewing a draft, NOT writing a new essay. Compare the first draft to the actual '
@@ -113,6 +125,7 @@ async def writer_generate(provider, request, history=None, details=False):
     if word_range and not word_range[0]<=len(final.split())<=word_range[1] and word_range[0]<=len(initial.split())<=word_range[1]:
         final=initial
         review+='\nThe revised versions missed the requested length; retained the original draft that meets it.'
+    writer_check_sample_copy(final,request)
     final_flags=writer_flags(final)
     report={'first_draft':initial,'review':review,'initial_flags':initial_flags,'remaining_flags':final_flags,
             'learned_style':__import__('local_learning').writer_review(db,final),

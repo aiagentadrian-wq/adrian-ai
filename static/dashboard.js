@@ -19,8 +19,8 @@
  $('writer').querySelectorAll('.writer-side').forEach(n=>voiceGrid.append(n));
  $('writer').querySelector('.writer-primary>.muted').textContent='Start with your assignment, ideas and source material. The Writer uses your saved voice preferences; you review and edit the result.';
  $('writer').querySelector('.writer-primary').prepend(button('Manage my writing voice',()=>show('voice')));
- $('writersaveedit').onclick=async()=>{try{await api('pro/writer/save','POST',{content:$('writeroutput').value});toast('Draft saved to your private local database.')}catch(e){toast(e.message)}};
- $('writer').querySelector('.writer-actions').append(button('Restore latest saved draft',async()=>{try{let d=await api('pro/writer/latest');if(d.draft){$('writeroutput').value=d.draft.content;writerCount();toast('Latest saved draft restored.')}else toast('No saved draft yet.')}catch(e){toast(e.message)}}));
+ $('writersaveedit').onclick=async()=>{try{await api('pro/writer/save','POST',{content:$('writeroutput').value,request:window.writerDraftRequest||writerRequest()});toast('Draft saved to your private local database.')}catch(e){toast(e.message)}};
+ $('writer').querySelector('.writer-actions').append(button('View previous drafts',()=>{$('writerhistory').open=true;$('writerhistory').scrollIntoView({block:'nearest',behavior:'smooth'})}));
  const voiceReview=$('writervoiceoutput').closest('.agent');const voiceDetails=el('details',null,'pro-tools');voiceDetails.append(el('summary','Review wording and personal voice'),voiceReview);$('writer').querySelector('.writer-primary').append(voiceDetails);
  const nav=document.querySelector('.side nav');nav.replaceChildren();
  for(const [id,name] of [['home','Overview'],['chat','Manager'],['trading','Trading Division'],['jobpro','Job Finder'],['writer','Writer Studio'],['email','Reports & Email'],['api','API Center'],['settings','Settings']]){let b=button(name,()=>show(id),'');b.dataset.page=id;nav.append(b)}

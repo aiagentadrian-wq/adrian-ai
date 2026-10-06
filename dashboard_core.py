@@ -364,12 +364,14 @@ def install(app, root, db, auth, csrf, now, cipher):
             __import__('local_learning').record_job(db,job,'applied' if body.stage=='applied' else 'save')
         return {'ok':True,'stage':body.stage,'note':'User recorded status; no application was submitted by the app.'}
 
-    class EditedDraft(BaseModel):content:str=Field(min_length=1,max_length=50000)
+    class EditedDraft(BaseModel):
+        content:str=Field(min_length=1,max_length=50000)
+        request:str=Field(default="User edited draft",min_length=1,max_length=18000)
     @app.post('/api/pro/writer/save')
     def save_edited(body:EditedDraft,req:Request):
         csrf(req)
         with db() as c:
-            r=c.execute('INSERT INTO writer_drafts(created,request,content) VALUES(?,?,?)',(now(),'User edited draft',body.content))
+            r=c.execute('INSERT INTO writer_drafts(created,request,content) VALUES(?,?,?)',(now(),body.request,body.content))
             return {'id':r.lastrowid,'saved':True}
     @app.get('/api/pro/writer/latest')
     def latest_draft(req:Request):

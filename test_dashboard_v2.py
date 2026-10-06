@@ -18,6 +18,7 @@ class DashboardTests(unittest.TestCase):
         for p in Path(__file__).parent.glob('*.py'):
             if 'backup' not in p.name and not p.name.startswith('test_'):shutil.copy2(p,root/p.name)
         shutil.copytree(Path(__file__).parent/'static',root/'static')
+        shutil.copy2(Path(__file__).parent/'trading_course_knowledge.json',root/'trading_course_knowledge.json')
         cls.env=patch.dict(os.environ,APP_PASSWORD='dashboard-test-password',SESSION_SECRET='x'*64,ENCRYPTION_KEY=Fernet.generate_key().decode())
         cls.env.start();sys.path.insert(0,str(root))
         cls.app=importlib.import_module('app');cls.core=importlib.import_module('dashboard_core')
@@ -39,6 +40,24 @@ class DashboardTests(unittest.TestCase):
                 send.assert_called_once_with('ADRIAN.AI - Your saved writing draft','Current truthful draft.')
         finally:
             with self.app.db() as c:c.execute("DELETE FROM providers WHERE name='writer-local-test'")
+    def test_writer_rejects_copied_sample_before_saving(self):
+        sample='Checking a job posting before applying is important because postings can expire and you do not want to waste time on opportunities that are no longer open.'
+        with self.app.db() as c:
+            c.execute('INSERT INTO writer_samples(created,title,kind,content) VALUES(?,?,?,?)',(self.app.now(),'job example','general',sample))
+        try:
+            with self.assertRaises(self.app.HTTPException):
+                self.app.writer_check_sample_copy(sample,'Analyze tariffs and market forces for a business idea.')
+            self.app.writer_check_sample_copy(sample,'Edit this supplied text: '+sample)
+            self.app.writer_check_sample_copy('Tariffs increase the cost of imported materials for the business.','Analyze market forces.')
+        finally:
+            with self.app.db() as c:c.execute("DELETE FROM writer_samples WHERE title='job example'")
+
+    def test_edited_assignment_retains_its_request(self):
+        response=self.client.post('/api/pro/writer/save',headers=self.headers,json={'content':'My revised business assignment.','request':'TITLE: Market forces'})
+        self.assertEqual(response.status_code,200)
+        latest=self.client.get('/api/pro/writer/latest').json()['draft']
+        self.assertEqual(latest['request'],'TITLE: Market forces')
+
     def test_writer_repairs_word_count_and_reports_actual_length(self):
         def result(text):return {'choices':[{'message':{'content':text}}]}
         with patch.object(self.app,'model_call',new=AsyncMock(side_effect=[result('short draft'),result('keep the facts'),result('short revised draft'),result(' '.join(['word']*100))])) as model:
