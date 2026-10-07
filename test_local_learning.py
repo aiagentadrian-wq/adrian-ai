@@ -27,6 +27,21 @@ class LearningTests(unittest.TestCase):
         self.assertIn('My email',learn.writer_context(self.db,'write an email'))
         with self.db() as c:c.execute('DELETE FROM writer_samples')
         b=learn.writer_model(self.db);self.assertEqual(b['sample_count'],0);self.assertNotEqual(a['fingerprint'],b['fingerprint'])
+    def test_primary_voice_survives_recency_topic_and_sample_deletion(self):
+        reference='Plain everyday language. '+('Full reference retained. '*600)+'LAST_SENTENCE'
+        learn.set_primary_reference(self.db,'My permanent voice',reference)
+        with self.db() as c:
+            for i in range(125):c.execute('INSERT INTO writer_samples VALUES(?,?,?,?)',(i+1,'email','Older competing example','Use highly formal corporate phrasing.'))
+            c.execute('INSERT INTO writer_feedback VALUES(1,?)',('Always sound very formal.',))
+        for request in ['Write about sports.','Write a business email.','Explain a science assignment.']:
+            context=learn.writer_context(self.db,request)
+            self.assertIn(reference,context)
+            self.assertNotIn('highly formal corporate',context)
+            self.assertNotIn('Always sound very formal',context)
+        with self.db() as c:c.execute('DELETE FROM writer_samples')
+        self.assertEqual(learn.primary_reference(self.db)['content'],reference)
+        self.assertIn('LAST_SENTENCE',learn.writer_context(self.db,'Another task'))
+
     def test_job_cold_start_does_not_invent_trained_model(self):
         m=learn.train_jobs(self.db);self.assertFalse(m['enabled']);self.assertEqual(m['labels'],0)
         job={'title':'cashier','employer':'Store','location':'Whitby','url':'https://example.org/job','pay':'$18 per hour'}

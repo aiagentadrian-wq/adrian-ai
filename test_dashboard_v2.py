@@ -40,6 +40,28 @@ class DashboardTests(unittest.TestCase):
                 send.assert_called_once_with('ADRIAN.AI - Your saved writing draft','Current truthful draft.')
         finally:
             with self.app.db() as c:c.execute("DELETE FROM providers WHERE name='writer-local-test'")
+    def test_primary_reference_is_in_every_generation_stage(self):
+        import local_learning
+        reference='A primary voice example with ordinary words. '+('Complete reference text, including the final paragraph. '*60)+'FINAL_REFERENCE_MARKER'
+        local_learning.set_primary_reference(self.app.db,'Primary test voice',reference)
+        def result(text):return {'choices':[{'message':{'content':text}}]}
+        try:
+            with patch.object(self.app,'model_call',new=AsyncMock(side_effect=[result('Short initial draft.'),result('Use natural contractions.'),result('Short revised draft.'),result(' '.join(['business']*100))])) as model:
+                draft,report=asyncio.run(self.app.writer_generate({'model':'test'},'Write 90 to 120 words about bakery inventory.',details=True))
+                self.assertEqual(report['primary_reference'],'Primary test voice')
+                self.assertEqual(model.await_count,4)
+                for call in model.await_args_list:
+                    system=call.args[1][0]['content']
+                    self.assertIn('FINAL_REFERENCE_MARKER',system)
+                    self.assertIn(reference,system)
+                    self.assertNotIn('Remove stock phrases such as',system)
+                self.assertNotIn('these stock phrases:',model.await_args_list[2].args[1][-1]['content'])
+                data=self.client.get('/api/writer').json()['primary_reference']
+                self.assertEqual(data['title'],'Primary test voice')
+                self.assertNotIn('content',data)
+        finally:
+            with self.app.db() as c:c.execute('DELETE FROM writer_primary_reference')
+
     def test_writer_rejects_copied_sample_before_saving(self):
         sample='Checking a job posting before applying is important because postings can expire and you do not want to waste time on opportunities that are no longer open.'
         with self.app.db() as c:
