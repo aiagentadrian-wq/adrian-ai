@@ -90,12 +90,14 @@ def writer_check_sample_copy(draft, request):
 async def writer_generate(provider, request, history=None, details=False):
     """Generate, get a specific style critique, rewrite, and check remaining stock phrases."""
     primary=__import__('local_learning').primary_reference(db)
+    word_range=__import__('local_learning').requested_words(request)
+    draft_budget=min(3500,max(512,word_range[1]*2+160)) if primary and word_range else 3500
     system=writer_instructions(request)
     if not primary:system+='\nShared user-approved preferences (current task takes priority):\n'+memory_context(request)
     messages=[{'role':'system','content':system}]
     if history: messages.extend(history)
     messages.append({'role':'user','content':request})
-    first=await model_call(provider,messages,max_tokens=3500)
+    first=await model_call(provider,messages,max_tokens=draft_budget)
     initial=(first['choices'][0]['message'].get('content') or '').strip()
     if not initial: raise HTTPException(502,'Writer returned an empty first draft')
     writer_check_sample_copy(initial,request)
@@ -109,7 +111,7 @@ async def writer_generate(provider, request, history=None, details=False):
         'Return concise plain text review notes, not the rewritten draft.\n\n'
         'ORIGINAL REQUEST:\n'+request+'\n\nFIRST DRAFT:\n'+initial+'\n\nDETECTED STOCK PHRASES:\n'+(', '.join(initial_flags) or 'None from fixed list'))
     if primary:critique_prompt='Compare only against the PRIMARY STYLE REFERENCE. Check task coverage first, then vocabulary, contractions, sentence rhythm, practical explanations and balanced conversational tone. Ignore old word blacklists. Do not make the voice more formal than the reference.\n'+critique_prompt.replace('Check the forbidden phrases supplied below.','Do not apply a word blacklist.').split('\n\nDETECTED STOCK PHRASES:')[0]
-    review_result=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':critique_prompt}])
+    review_result=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':critique_prompt}],max_tokens=800 if primary else 1400)
     review=(review_result['choices'][0]['message'].get('content') or '').strip()
     if not review: review='Review unavailable; apply the saved corrections and remove stock phrases.'
     revision_prompt=(
@@ -121,14 +123,14 @@ async def writer_generate(provider, request, history=None, details=False):
         'Output ONLY the complete rewritten draft.\n\nORIGINAL REQUEST:\n'+request+
         '\n\nFIRST DRAFT:\n'+initial+'\n\nSPECIFIC STYLE REVIEW:\n'+review)
     if primary:revision_prompt='Rewrite the first draft to match the PRIMARY STYLE REFERENCE, using the specific review. Preserve the current task, supplied facts and required structure; correct any missed requirement. Match everyday wording, natural contractions, varied sentence rhythm and practical explanations. Do not copy the reference topic or personal header. Output only the complete draft.\n\nCURRENT TASK:\n'+request+'\n\nFIRST DRAFT:\n'+initial+'\n\nSPECIFIC REVIEW:\n'+review
-    revised=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':revision_prompt}],max_tokens=3500)
+    revised=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':revision_prompt}],max_tokens=draft_budget)
     final=(revised['choices'][0]['message'].get('content') or '').strip()
     if not final: raise HTTPException(502,'Writer returned an empty revised draft')
     word_range=__import__('local_learning').requested_words(request)
     for _ in range(2):
         if not word_range or word_range[0]<=len(final.split())<=word_range[1]:break
         repair=('Your current draft has '+str(len(final.split()))+' words. The user requires '+str(word_range[0])+' to '+str(word_range[1])+' words. Aim for the midpoint. Return the complete corrected draft, preserving all task requirements and supplied facts. Expand or shorten explanations; do not add unsupported facts, citations or personal experiences. No preface.\nTASK:\n'+request+'\nCURRENT DRAFT:\n'+final)
-        fixed=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':repair}],max_tokens=3500)
+        fixed=await model_call(provider,[{'role':'system','content':system},{'role':'user','content':repair}],max_tokens=draft_budget)
         final=(fixed['choices'][0]['message'].get('content') or '').strip()
         if not final:raise HTTPException(502,'Writer length revision returned no draft')
     if word_range and not word_range[0]<=len(final.split())<=word_range[1] and word_range[0]<=len(initial.split())<=word_range[1]:
